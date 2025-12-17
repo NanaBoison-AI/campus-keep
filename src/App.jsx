@@ -59,7 +59,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const appId = firebaseConfig.projectId;
 
 // --- Helper Functions ---
 // UPDATED: Adjusted to standard path: artifacts/{appId}/users/{userId}/{collectionName}
