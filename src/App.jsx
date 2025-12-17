@@ -22,7 +22,12 @@ import {
   User,
   ChevronRight,
   ChevronLeft,
-  Hash
+  Hash,
+  Pencil,
+  Calendar,
+  Clock,
+  ArrowUpDown,
+  PieChart
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -62,7 +67,6 @@ const db = getFirestore(app);
 const appId = firebaseConfig.projectId;
 
 // --- Helper Functions ---
-// UPDATED: Adjusted to standard path: artifacts/{appId}/users/{userId}/{collectionName}
 const getCollectionPath = (collectionName, userId) => {
   if (!userId) throw new Error("User ID required for path generation");
   return `artifacts/${appId}/users/${userId}/${collectionName}`;
@@ -109,14 +113,14 @@ const downloadCSV = (data, filename) => {
 
 // --- Components ---
 
-// 1. Sidebar Component (Desktop)
+// 1. Sidebar Component
 const Sidebar = ({ activeView, setActiveView, onLogout, username }) => (
   <div className="hidden md:flex w-64 bg-slate-900 text-white flex-col h-full shadow-xl">
     <div className="p-6 border-b border-slate-800">
       <div className="flex items-center gap-3">
         {/* Replace this URL with your logo */}
         <img 
-          src="https://cdn-icons-png.flaticon.com/512/5526/5526465.png" 
+          src="/campuskeep_logo.png" 
           alt="Campus Logo" 
           className="w-8 h-8 object-contain bg-white/10 rounded p-1"
         />
@@ -164,12 +168,12 @@ const Sidebar = ({ activeView, setActiveView, onLogout, username }) => (
         >
             <LogOut size={16} /> Logout
         </button>
-        <div className="text-[10px] text-slate-600 mt-4 pl-1">Built By nanaboison</div>
+        <div className="text-[10px] text-slate-600 mt-4 pl-1">Powered By nanaboison (stephen.nanaboison@gmail.com)</div>
     </div>
   </div>
 );
 
-// 1.5 Mobile Navigation (Bottom Bar)
+// 1.5 Mobile Navigation
 const MobileNav = ({ activeView, setActiveView, onLogout }) => (
   <div className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 text-white flex justify-around items-center p-2 z-40 border-t border-slate-800 pb-safe shadow-lg">
     <MobileNavButton 
@@ -225,10 +229,120 @@ const NavButton = ({ icon, label, active, onClick }) => (
   </button>
 );
 
-// 2. Setup & Buildings View
+// 2. Dashboard View (New)
+const DashboardView = ({ buildings, rooms, issues }) => {
+  const stats = useMemo(() => {
+    const s = {
+      facilities: buildings.length,
+      rooms: rooms.length,
+      roomsByState: { 'Cleaned': 0, 'Not Cleaned': 0, 'Occupied': 0 },
+      issuesByCategory: {},
+      issuesOpen: 0,
+      issuesFixed: 0
+    };
+
+    rooms.forEach(r => {
+      if (s.roomsByState[r.state] !== undefined) s.roomsByState[r.state]++;
+      else s.roomsByState[r.state] = (s.roomsByState[r.state] || 0) + 1; // Safety for unknown states
+    });
+
+    issues.forEach(i => {
+      // Category
+      const cat = i.category || 'Uncategorized';
+      s.issuesByCategory[cat] = (s.issuesByCategory[cat] || 0) + 1;
+
+      // Status
+      if (i.status === 'Open') s.issuesOpen++;
+      else if (i.status === 'Fixed') s.issuesFixed++;
+    });
+
+    return s;
+  }, [buildings, rooms, issues]);
+
+  return (
+    <div className="p-4 md:p-8 max-w-6xl mx-auto pb-24 md:pb-8">
+      <h2 className="text-2xl md:text-3xl font-bold text-slate-800 mb-6 flex items-center gap-3">
+        <PieChart className="text-slate-400" /> Dashboard
+      </h2>
+
+      {/* Top Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+           <div className="text-3xl font-bold text-slate-800">{stats.facilities}</div>
+           <div className="text-xs text-slate-500 uppercase font-bold mt-1">Facilities</div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+           <div className="text-3xl font-bold text-slate-800">{stats.rooms}</div>
+           <div className="text-xs text-slate-500 uppercase font-bold mt-1">Total Rooms</div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+           <div className="text-3xl font-bold text-orange-600">{stats.issuesOpen}</div>
+           <div className="text-xs text-slate-500 uppercase font-bold mt-1">Open Issues</div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+           <div className="text-3xl font-bold text-green-600">{stats.issuesFixed}</div>
+           <div className="text-xs text-slate-500 uppercase font-bold mt-1">Resolved Issues</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Room States */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+            <Bed size={18} /> Room Status Breakdown
+          </h3>
+          <div className="space-y-4">
+             <div className="flex items-center justify-between p-4 bg-red-50 rounded-lg border border-red-100">
+                <div className="flex items-center gap-3">
+                   <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                   <span className="font-medium text-slate-700">Not Cleaned</span>
+                </div>
+                <span className="font-bold text-xl text-slate-800">{stats.roomsByState['Not Cleaned'] || 0}</span>
+             </div>
+             <div className="flex items-center justify-between p-4 bg-green-50 rounded-lg border border-green-100">
+                <div className="flex items-center gap-3">
+                   <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                   <span className="font-medium text-slate-700">Cleaned</span>
+                </div>
+                <span className="font-bold text-xl text-slate-800">{stats.roomsByState['Cleaned'] || 0}</span>
+             </div>
+             <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100">
+                <div className="flex items-center gap-3">
+                   <div className="w-3 h-3 rounded-full bg-gray-500"></div>
+                   <span className="font-medium text-slate-700">Occupied</span>
+                </div>
+                <span className="font-bold text-xl text-slate-800">{stats.roomsByState['Occupied'] || 0}</span>
+             </div>
+          </div>
+        </div>
+
+        {/* Issue Categories */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+            <AlertTriangle size={18} /> Issues by Category
+          </h3>
+          <div className="grid grid-cols-2 gap-4">
+             {Object.entries(stats.issuesByCategory).map(([cat, count]) => (
+                <div key={cat} className="p-4 bg-slate-50 border border-slate-100 rounded-lg flex flex-col items-center justify-center text-center">
+                   <span className="text-3xl font-bold text-slate-800 mb-1">{count}</span>
+                   <span className="text-xs text-slate-500 uppercase font-bold">{cat}</span>
+                </div>
+             ))}
+             {Object.keys(stats.issuesByCategory).length === 0 && (
+                <div className="col-span-2 text-center text-slate-400 py-8">No issues recorded yet</div>
+             )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// 3. Setup & Buildings View
 const BuildingsView = ({ buildings, rooms, issues, setNotification, userId }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedBuilding, setSelectedBuilding] = useState(null);
+  const [editingBuilding, setEditingBuilding] = useState(null);
 
   // Filter rooms for selected building
   const buildingRooms = useMemo(() => 
@@ -241,8 +355,94 @@ const BuildingsView = ({ buildings, rooms, issues, setNotification, userId }) =>
     }),
   [rooms, selectedBuilding]);
 
-  // Helper to generate a new doc ref with auto ID
-  const asNewDocRef = (coll, uid) => doc(collection(db, getCollectionPath(coll, uid)));
+  const handleCreateFacility = async (data) => {
+    try {
+        // 1. Create Building
+        const docRef = await addDoc(collection(db, getCollectionPath('buildings', userId)), {
+            name: data.name,
+            type: data.type,
+            floors: data.floors,
+            createdAt: serverTimestamp()
+        });
+
+        // 2. Create Rooms if Accommodation
+        if (data.type === 'Accommodation' && data.roomsData) {
+            const batch = writeBatch(db);
+            Object.keys(data.roomsData).forEach(floorNum => {
+                const floorRooms = data.roomsData[floorNum];
+                floorRooms.forEach(room => {
+                    const newRoomRef = doc(collection(db, getCollectionPath('rooms', userId)));
+                    batch.set(newRoomRef, {
+                        buildingId: docRef.id,
+                        buildingName: data.name,
+                        floor: parseInt(floorNum),
+                        number: room.number, 
+                        state: 'Not Cleaned',
+                        items: { beds: 2, pillows: 2, mattress: 2 },
+                        lastCleaned: null
+                    });
+                });
+            });
+            await batch.commit();
+        }
+        setNotification({ type: 'success', message: 'Facility created successfully!' });
+        setShowAddModal(false);
+    } catch(e) {
+        console.error(e);
+        setNotification({ type: 'error', message: 'Failed to create facility' });
+    }
+  };
+
+  const handleEditFacility = async (data) => {
+    try {
+        const buildingRef = doc(db, getCollectionPath('buildings', userId), data.id);
+        
+        // 1. Update Building Meta
+        await updateDoc(buildingRef, {
+            name: data.name,
+            type: data.type
+        });
+
+        // 2. Update Rooms if roomsData is provided (changed numbers/names)
+        if (data.type === 'Accommodation' && data.roomsData) {
+            const batch = writeBatch(db);
+            
+            // Iterate through all floors in the editor
+            Object.keys(data.roomsData).forEach(floorNum => {
+                const floorRooms = data.roomsData[floorNum];
+                floorRooms.forEach(room => {
+                    if (room.id && !room.id.startsWith('temp_')) {
+                        // Existing room - update its number and sync building name
+                        const roomRef = doc(db, getCollectionPath('rooms', userId), room.id);
+                        batch.update(roomRef, { 
+                            number: room.number,
+                            buildingName: data.name // Keep building name in sync
+                        });
+                    }
+                });
+            });
+            
+            await batch.commit();
+        } else if (data.name !== editingBuilding.name) {
+             // Fallback: If only name changed and no room data passed (e.g. non-accom), update links
+             // This part might be redundant if wizard always passes roomsData for accom, but safe for others
+             const relatedRooms = rooms.filter(r => r.buildingId === data.id);
+             if(relatedRooms.length > 0) {
+                 const batch = writeBatch(db);
+                 relatedRooms.forEach(r => {
+                     batch.update(doc(db, getCollectionPath('rooms', userId), r.id), { buildingName: data.name });
+                 });
+                 await batch.commit();
+             }
+        }
+
+        setNotification({ type: 'success', message: 'Facility updated successfully' });
+        setEditingBuilding(null);
+    } catch (e) {
+        console.error(e);
+        setNotification({ type: 'error', message: 'Failed to update facility' });
+    }
+  };
 
   return (
     <div className="p-4 md:p-6 h-full flex flex-col overflow-hidden pb-20 md:pb-6">
@@ -274,9 +474,22 @@ const BuildingsView = ({ buildings, rooms, issues, setNotification, userId }) =>
             >
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-bold text-slate-700">{b.name}</h3>
-                <span className="text-[10px] md:text-xs px-2 py-1 bg-slate-100 rounded-full text-slate-600 uppercase tracking-wider font-semibold">
-                  {b.type}
-                </span>
+                <div className="flex items-center gap-2">
+                    {/* Edit Button */}
+                    <button 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingBuilding(b);
+                        }}
+                        className="p-1 hover:bg-slate-200 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+                        title="Edit Facility"
+                    >
+                        <Pencil size={14} />
+                    </button>
+                    <span className="text-[10px] md:text-xs px-2 py-1 bg-slate-100 rounded-full text-slate-600 uppercase tracking-wider font-semibold">
+                        {b.type}
+                    </span>
+                </div>
               </div>
               <div className="text-sm text-slate-500 flex justify-between">
                 <span>{b.floors} Floors</span>
@@ -328,62 +541,32 @@ const BuildingsView = ({ buildings, rooms, issues, setNotification, userId }) =>
         </div>
       </div>
 
-      {/* Add Building Modal - Multi Step */}
-      {showAddModal && (
-        <AddBuildingWizard 
-            onClose={() => setShowAddModal(false)}
-            onComplete={async (data) => {
-                try {
-                    // 1. Create Building
-                    const docRef = await addDoc(collection(db, getCollectionPath('buildings', userId)), {
-                        name: data.name,
-                        type: data.type,
-                        floors: data.floors,
-                        createdAt: serverTimestamp()
-                    });
-
-                    // 2. Create Rooms if Accommodation
-                    if (data.type === 'Accommodation' && data.roomsData) {
-                        const batch = writeBatch(db);
-                        // data.roomsData is { floorNumber: [ { number: '101' }, ... ] }
-                        Object.keys(data.roomsData).forEach(floorNum => {
-                            const floorRooms = data.roomsData[floorNum];
-                            floorRooms.forEach(room => {
-                                const newRoomRef = asNewDocRef('rooms', userId);
-                                batch.set(newRoomRef, {
-                                    buildingId: docRef.id,
-                                    buildingName: data.name,
-                                    floor: parseInt(floorNum),
-                                    number: room.number, // Could be string like "101A"
-                                    state: 'Not Cleaned',
-                                    items: { beds: 2, pillows: 2, mattress: 2 },
-                                    lastCleaned: null
-                                });
-                            });
-                        });
-                        await batch.commit();
-                    }
-                    setNotification({ type: 'success', message: 'Facility created successfully!' });
-                    setShowAddModal(false);
-                } catch(e) {
-                    console.error(e);
-                    setNotification({ type: 'error', message: 'Failed to create facility' });
-                }
+      {/* Unified Facility Wizard (Create & Edit) */}
+      {(showAddModal || editingBuilding) && (
+        <FacilityConfigWizard 
+            isEditing={!!editingBuilding}
+            initialBuilding={editingBuilding}
+            initialRooms={editingBuilding ? rooms.filter(r => r.buildingId === editingBuilding.id) : []}
+            onClose={() => {
+                setShowAddModal(false);
+                setEditingBuilding(null);
             }}
+            onComplete={editingBuilding ? handleEditFacility : handleCreateFacility}
         />
       )}
     </div>
   );
 };
 
-// --- Wizard Component for Adding Buildings ---
-const AddBuildingWizard = ({ onClose, onComplete }) => {
+// --- Config Wizard Component (Handles Add & Edit) ---
+const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialBuilding = null, initialRooms = [] }) => {
     const [step, setStep] = useState(1);
     const [draftBuilding, setDraftBuilding] = useState({
-        name: '',
-        type: 'Accommodation',
-        floors: 1,
-        roomsPerFloor: 10
+        name: initialBuilding?.name || '',
+        type: initialBuilding?.type || 'Accommodation',
+        floors: initialBuilding?.floors || 1,
+        roomsPerFloor: 10,
+        ...initialBuilding // Merge any other existing props (like id)
     });
     
     // Structure: { 1: [{ number: '101' }, { number: '102'}], 2: [...] }
@@ -391,28 +574,61 @@ const AddBuildingWizard = ({ onClose, onComplete }) => {
     const [activeFloor, setActiveFloor] = useState(1);
     const [rangeStart, setRangeStart] = useState('');
 
+    useEffect(() => {
+        if (isEditing && initialRooms.length > 0) {
+            // Group existing rooms by floor for the wizard
+            const grouped = {};
+            // Initialize arrays for all floors defined in building
+            for(let f = 1; f <= draftBuilding.floors; f++) grouped[f] = [];
+            
+            initialRooms.forEach(room => {
+                if(!grouped[room.floor]) grouped[room.floor] = [];
+                grouped[room.floor].push({ ...room }); // Clone room data
+            });
+            
+            // Sort rooms by number inside floors
+            Object.keys(grouped).forEach(f => {
+                grouped[f].sort((a,b) => {
+                    const nA = parseInt(a.number);
+                    const nB = parseInt(b.number);
+                    return (!isNaN(nA) && !isNaN(nB)) ? nA - nB : String(a.number).localeCompare(String(b.number));
+                });
+            });
+
+            setDraftRooms(grouped);
+            // Auto set range start based on first room of first floor
+            if (grouped[1] && grouped[1].length > 0) {
+                setRangeStart(grouped[1][0].number);
+            }
+        }
+    }, [isEditing, initialRooms, draftBuilding.floors]);
+
     const generateInitialDraft = () => {
+        // If editing, we already loaded rooms in useEffect, unless we changed floor count?
+        // For simplicity in this version, if editing, we assume rooms are loaded.
+        // If creating, we generate.
+        if (isEditing && Object.keys(draftRooms).length > 0) return;
+
         const rooms = {};
         for(let f = 1; f <= draftBuilding.floors; f++) {
             rooms[f] = [];
             for(let r = 1; r <= draftBuilding.roomsPerFloor; r++) {
                 rooms[f].push({ 
-                    id: Math.random().toString(36), // Temp ID for React keys
+                    id: `temp_${Math.random().toString(36)}`, 
                     number: (f * 100) + r 
                 });
             }
         }
         setDraftRooms(rooms);
-        setRangeStart((1 * 100) + 1); // Default range start for floor 1
+        setRangeStart((1 * 100) + 1); 
     };
 
     const handleNext = (e) => {
         e.preventDefault();
         if (draftBuilding.type !== 'Accommodation') {
-            // Skip room config for non-accom
             onComplete({ ...draftBuilding, roomsData: null });
         } else {
-            generateInitialDraft();
+            if (!isEditing) generateInitialDraft();
             setStep(2);
         }
     };
@@ -449,9 +665,11 @@ const AddBuildingWizard = ({ onClose, onComplete }) => {
                 <div className="p-6 border-b flex justify-between items-center bg-slate-50 rounded-t-2xl">
                     <div>
                         <h3 className="text-xl font-bold text-slate-800">
-                            {step === 1 ? 'New Facility Details' : 'Configure Rooms'}
+                            {isEditing ? 'Edit Facility' : 'New Facility Details'}
                         </h3>
-                        <p className="text-sm text-slate-500">Step {step} of {draftBuilding.type === 'Accommodation' ? '2' : '1'}</p>
+                        <p className="text-sm text-slate-500">
+                            {step === 1 ? 'Basic Details' : 'Room Configuration'}
+                        </p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500">
                         <XCircle size={24} />
@@ -493,9 +711,11 @@ const AddBuildingWizard = ({ onClose, onComplete }) => {
                                         type="number" 
                                         min="1" 
                                         max="50"
+                                        disabled={isEditing} // Prevent changing structure during edit for simplicity
+                                        title={isEditing ? "Structure changes disabled in edit mode" : ""}
                                         value={draftBuilding.floors}
                                         onChange={e => setDraftBuilding({...draftBuilding, floors: parseInt(e.target.value) || 1})}
-                                        className="w-full border border-slate-300 rounded-lg p-3" 
+                                        className={`w-full border border-slate-300 rounded-lg p-3 ${isEditing ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`} 
                                     />
                                 </div>
                                 {draftBuilding.type === 'Accommodation' && (
@@ -506,13 +726,20 @@ const AddBuildingWizard = ({ onClose, onComplete }) => {
                                             type="number" 
                                             min="1"
                                             max="100"
+                                            disabled={isEditing} // Prevent changing structure during edit
+                                            title={isEditing ? "Structure changes disabled in edit mode" : ""}
                                             value={draftBuilding.roomsPerFloor}
                                             onChange={e => setDraftBuilding({...draftBuilding, roomsPerFloor: parseInt(e.target.value) || 1})}
-                                            className="w-full border border-slate-300 rounded-lg p-3" 
+                                            className={`w-full border border-slate-300 rounded-lg p-3 ${isEditing ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`} 
                                         />
                                     </div>
                                 )}
                             </div>
+                            {isEditing && (
+                                <p className="text-xs text-orange-500 bg-orange-50 p-2 rounded">
+                                    Note: Changing floors or room counts is disabled to protect existing room data. You can rename rooms in the next step.
+                                </p>
+                            )}
                         </form>
                     ) : (
                         <div className="flex h-full">
@@ -568,7 +795,7 @@ const AddBuildingWizard = ({ onClose, onComplete }) => {
                                 <div className="p-6 overflow-y-auto bg-slate-50/50 flex-1">
                                     <div className="grid grid-cols-3 gap-4">
                                         {draftRooms[activeFloor]?.map((room, idx) => (
-                                            <div key={room.id} className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
+                                            <div key={room.id || idx} className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
                                                 <label className="block text-[10px] font-bold text-slate-400 mb-1">Room {idx + 1}</label>
                                                 <input 
                                                     value={room.number}
@@ -607,7 +834,7 @@ const AddBuildingWizard = ({ onClose, onComplete }) => {
                     >
                         {step === 1 && draftBuilding.type === 'Accommodation' ? (
                              <>Next Step <ChevronRight size={18} /></>
-                        ) : 'Create Facility'}
+                        ) : (isEditing ? 'Save Changes' : 'Create Facility')}
                     </button>
                 </div>
             </div>
@@ -615,10 +842,21 @@ const AddBuildingWizard = ({ onClose, onComplete }) => {
     );
 };
 
-// 3. Room Manager
+// 4. Room Manager
 const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId }) => {
   const [selectedRooms, setSelectedRooms] = useState([]);
   const [viewingRoom, setViewingRoom] = useState(null);
+
+  // Group rooms by floor
+  const roomsByFloor = useMemo(() => {
+    const grouped = {};
+    rooms.forEach(room => {
+      const floor = room.floor; 
+      if (!grouped[floor]) grouped[floor] = [];
+      grouped[floor].push(room);
+    });
+    return grouped;
+  }, [rooms]);
 
   const getRoomColor = (room) => {
     if (room.state === 'Occupied') return 'bg-gray-500 border-gray-600 text-white';
@@ -700,32 +938,43 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto pb-10">
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 md:gap-3">
-          {rooms.map(room => (
-            <div 
-              key={room.id}
-              onClick={() => setViewingRoom(room)}
-              className={`relative aspect-square rounded-lg md:rounded-xl flex flex-col items-center justify-center cursor-pointer shadow-sm hover:shadow-md transition-all border-2 ${getRoomColor(room)}`}
-            >
-              <input 
-                type="checkbox" 
-                className="absolute top-1 left-1 md:top-2 md:left-2 w-4 h-4 rounded border-white/50 cursor-pointer"
-                checked={selectedRooms.includes(room.id)}
-                onClick={(e) => { e.stopPropagation(); toggleSelectRoom(room.id); }}
-                onChange={() => {}} 
-              />
-              <span className="text-lg md:text-xl font-bold">{room.number}</span>
-              <span className="hidden md:block text-[10px] uppercase opacity-90 mt-1 font-medium">{room.state}</span>
-              
-              <div className="absolute bottom-1 right-1 md:bottom-2 md:left-2 flex gap-1">
-                 {issues.some(i => i.roomId === room.id && i.status !== 'Fixed') && (
-                    <AlertTriangle size={14} className="text-white drop-shadow-md" />
-                 )}
-              </div>
+      <div className="flex-1 overflow-y-auto pb-10 px-1">
+        {Object.keys(roomsByFloor).sort((a,b) => parseInt(a) - parseInt(b)).map(floor => (
+            <div key={floor} className="mb-6">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <span className="bg-slate-200 px-2 py-1 rounded">Floor {floor}</span>
+                    <div className="h-px bg-slate-200 flex-1"></div>
+                </h4>
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 md:gap-3">
+                {roomsByFloor[floor].map(room => (
+                    <div 
+                    key={room.id}
+                    onClick={() => setViewingRoom(room)}
+                    className={`relative aspect-square rounded-lg md:rounded-xl flex flex-col items-center justify-center cursor-pointer shadow-sm hover:shadow-md transition-all border-2 ${getRoomColor(room)}`}
+                    >
+                    <input 
+                        type="checkbox" 
+                        className="absolute top-1 left-1 md:top-2 md:left-2 w-4 h-4 rounded border-white/50 cursor-pointer"
+                        checked={selectedRooms.includes(room.id)}
+                        onClick={(e) => { e.stopPropagation(); toggleSelectRoom(room.id); }}
+                        onChange={() => {}} 
+                    />
+                    <span className="text-lg md:text-xl font-bold">{room.number}</span>
+                    <span className="hidden md:block text-[10px] uppercase opacity-90 mt-1 font-medium">{room.state}</span>
+                    
+                    <div className="absolute bottom-1 right-1 md:bottom-2 md:left-2 flex gap-1">
+                        {issues.some(i => i.roomId === room.id && i.status !== 'Fixed') && (
+                            <AlertTriangle size={14} className="text-white drop-shadow-md" />
+                        )}
+                    </div>
+                    </div>
+                ))}
+                </div>
             </div>
-          ))}
-        </div>
+        ))}
+        {rooms.length === 0 && (
+            <div className="text-center py-10 text-slate-400">No rooms found in this facility.</div>
+        )}
       </div>
 
       {viewingRoom && (
@@ -741,10 +990,12 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
   );
 };
 
-// 4. Issues Dashboard
+// 5. Issues Dashboard
 const IssuesView = ({ rooms, issues, setNotification, userId }) => {
   const categories = ['Plumbing', 'Electrical', 'Carpentry', 'HVAC', 'General'];
-  const [filter, setFilter] = useState('All');
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [sortConfig, setSortConfig] = useState({ key: 'reportedAt', direction: 'desc' });
 
   const handleStatusToggle = async (issue) => {
     const newStatus = issue.status === 'Fixed' ? 'Open' : 'Fixed';
@@ -759,24 +1010,100 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
     }
   };
 
-  const filteredIssues = issues.filter(i => filter === 'All' || i.category === filter);
+  const handleSort = (key) => {
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const filteredIssues = issues.filter(i => {
+    const matchesCategory = categoryFilter === 'All' || i.category === categoryFilter;
+    const matchesStatus = statusFilter === 'All' || i.status === statusFilter;
+    return matchesCategory && matchesStatus;
+  });
+
+  const sortedIssues = useMemo(() => {
+    if (!filteredIssues) return [];
+    // Enriched issues with floor data
+    const enrichedIssues = filteredIssues.map(issue => {
+        const room = rooms.find(r => r.id === issue.roomId);
+        return {
+            ...issue,
+            floor: room ? room.floor : '-'
+        };
+    });
+
+    const sorted = [...enrichedIssues];
+    sorted.sort((a, b) => {
+      let aVal = a[sortConfig.key];
+      let bVal = b[sortConfig.key];
+
+      // Handle Timestamp objects
+      if (aVal?.toDate) aVal = aVal.toDate();
+      if (bVal?.toDate) bVal = bVal.toDate();
+      
+      // Handle strings (case insensitive)
+      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+
+      // Handle nulls
+      if (aVal === null || aVal === undefined) return 1;
+      if (bVal === null || bVal === undefined) return -1;
+
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return sorted;
+  }, [filteredIssues, rooms, sortConfig]);
 
   return (
     <div className="p-4 md:p-6 h-full flex flex-col pb-24 md:pb-6">
        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
           <h2 className="text-2xl font-bold text-slate-800">Issues Tracker</h2>
-          <div className="flex flex-wrap gap-2">
-            {['All', ...categories].map(cat => (
-              <button 
-                key={cat}
-                onClick={() => setFilter(cat)}
-                className={`px-3 py-1 rounded-full text-xs md:text-sm font-medium transition-colors ${
-                  filter === cat ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
+          
+          <div className="flex flex-col gap-3 w-full md:w-auto">
+            {/* Status Filters */}
+            <div className="flex gap-2 bg-white p-1 rounded-lg border border-slate-200 self-start md:self-end">
+                {['All', 'Open', 'Fixed'].map(status => (
+                    <button
+                        key={status}
+                        onClick={() => setStatusFilter(status)}
+                        className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                            statusFilter === status 
+                            ? (status === 'Open' ? 'bg-red-100 text-red-700' : status === 'Fixed' ? 'bg-green-100 text-green-700' : 'bg-slate-800 text-white')
+                            : 'text-slate-500 hover:bg-slate-50'
+                        }`}
+                    >
+                        {status}
+                    </button>
+                ))}
+            </div>
+
+            {/* Category Filters */}
+            <div className="flex flex-wrap gap-2">
+                <button 
+                    onClick={() => setCategoryFilter('All')}
+                    className={`px-3 py-1 rounded-full text-xs md:text-sm font-medium transition-colors ${
+                    categoryFilter === 'All' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                    }`}
+                >
+                    All Cats
+                </button>
+                {categories.map(cat => (
+                <button 
+                    key={cat}
+                    onClick={() => setCategoryFilter(cat)}
+                    className={`px-3 py-1 rounded-full text-xs md:text-sm font-medium transition-colors ${
+                    categoryFilter === cat ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                    }`}
+                >
+                    {cat}
+                </button>
+                ))}
+            </div>
           </div>
        </div>
 
@@ -785,16 +1112,34 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
          <table className="hidden md:table w-full text-left border-collapse bg-white rounded-xl shadow-sm">
             <thead className="bg-slate-50 sticky top-0 z-10">
               <tr>
-                <th className="p-4 font-semibold text-slate-600 border-b">Room</th>
-                <th className="p-4 font-semibold text-slate-600 border-b">Category</th>
-                <th className="p-4 font-semibold text-slate-600 border-b">Description</th>
-                <th className="p-4 font-semibold text-slate-600 border-b">Reported</th>
-                <th className="p-4 font-semibold text-slate-600 border-b text-right">Status</th>
+                {[
+                    { label: 'Floor', key: 'floor' },
+                    { label: 'Room', key: 'roomNumber' },
+                    { label: 'Category', key: 'category' },
+                    { label: 'Description', key: 'description' },
+                    { label: 'Reported', key: 'reportedAt' },
+                    { label: 'Resolved', key: 'resolvedAt' },
+                    { label: 'Status', key: 'status', align: 'right' }
+                ].map(col => (
+                    <th 
+                        key={col.key}
+                        onClick={() => handleSort(col.key)}
+                        className={`p-4 font-semibold text-slate-600 border-b cursor-pointer hover:bg-slate-100 transition-colors ${col.align === 'right' ? 'text-right' : ''}`}
+                    >
+                        <div className={`flex items-center gap-1 ${col.align === 'right' ? 'justify-end' : ''}`}>
+                            {col.label}
+                            {sortConfig.key === col.key && (
+                                <ArrowUpDown size={14} className="text-blue-500" />
+                            )}
+                        </div>
+                    </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {filteredIssues.map(issue => (
+              {sortedIssues.map(issue => (
                 <tr key={issue.id} className="hover:bg-slate-50 border-b last:border-0">
+                  <td className="p-4 text-slate-600 font-medium">{issue.floor}</td>
                   <td className="p-4 font-medium text-slate-800">{issue.roomNumber}</td>
                   <td className="p-4">
                     <span className={`px-2 py-1 rounded text-xs font-bold ${
@@ -805,9 +1150,12 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
                       {issue.category}
                     </span>
                   </td>
-                  <td className="p-4 text-slate-600">{issue.description}</td>
+                  <td className="p-4 text-slate-600 max-w-xs truncate" title={issue.description}>{issue.description}</td>
                   <td className="p-4 text-sm text-slate-500">
                     {issue.reportedAt?.toDate().toLocaleDateString()}
+                  </td>
+                  <td className="p-4 text-sm text-slate-500">
+                    {issue.resolvedAt ? issue.resolvedAt.toDate().toLocaleDateString() : '-'}
                   </td>
                   <td className="p-4 text-right">
                     <button 
@@ -829,11 +1177,12 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
 
          {/* Mobile Card View */}
          <div className="md:hidden space-y-3 p-3">
-            {filteredIssues.map(issue => (
+            {sortedIssues.map(issue => (
               <div key={issue.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
                  <div className="flex justify-between items-start mb-2">
                     <div className="flex items-center gap-2">
                         <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-sm">#{issue.roomNumber}</span>
+                        <span className="text-xs text-slate-500 bg-slate-50 px-2 py-0.5 rounded">F{issue.floor}</span> {/* Added Floor Badge */}
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
                             issue.category === 'Electrical' ? 'bg-yellow-50 text-yellow-700' :
                             issue.category === 'Plumbing' ? 'bg-blue-50 text-blue-700' :
@@ -842,7 +1191,12 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
                             {issue.category}
                         </span>
                     </div>
-                    <span className="text-[10px] text-slate-400">{issue.reportedAt?.toDate().toLocaleDateString()}</span>
+                    <div className="text-right">
+                        <span className="text-[10px] text-slate-400 block">{issue.reportedAt?.toDate().toLocaleDateString()}</span>
+                        {issue.resolvedAt && (
+                            <span className="text-[10px] text-green-600 block mt-0.5">Fixed: {issue.resolvedAt.toDate().toLocaleDateString()}</span>
+                        )}
+                    </div>
                  </div>
                  <p className="text-sm text-slate-600 mb-3">{issue.description}</p>
                  <button 
@@ -862,7 +1216,7 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
 
          {filteredIssues.length === 0 && (
             <div className="p-12 text-center text-slate-400">
-            No issues found in this category.
+            No issues found matching filters.
             </div>
          )}
        </div>
@@ -870,10 +1224,24 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
   );
 };
 
-// 5. Room Detail Modal (History, Inventory, Actions)
+// 6. Room Detail Modal
 const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [newIssue, setNewIssue] = useState({ category: 'General', description: '' });
+  const [roomHistory, setRoomHistory] = useState([]);
+
+  // Fetch History specific to this room
+  useEffect(() => {
+    const q = query(
+        collection(db, getCollectionPath('history', userId)), 
+        where('roomId', '==', room.id),
+        orderBy('timestamp', 'desc')
+    );
+    const unsub = onSnapshot(q, (snap) => {
+        setRoomHistory(snap.docs.map(d => ({id: d.id, ...d.data()})));
+    });
+    return () => unsub();
+  }, [room.id, userId]);
 
   const handleUpdateInventory = async (e) => {
     e.preventDefault();
@@ -906,18 +1274,50 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
     }
   };
 
+  const handleStateUpdate = async (newState) => {
+      try {
+        const batch = writeBatch(db);
+        const roomRef = doc(db, getCollectionPath('rooms', userId), room.id);
+        
+        const updates = { state: newState };
+        if (newState === 'Cleaned') updates.lastCleaned = serverTimestamp();
+        
+        batch.update(roomRef, updates);
+        
+        const historyRef = doc(collection(db, getCollectionPath('history', userId)));
+        batch.set(historyRef, {
+            roomId: room.id,
+            type: 'STATE_CHANGE',
+            details: `Status changed to ${newState}`,
+            timestamp: serverTimestamp()
+        });
+        
+        await batch.commit();
+        setNotification({type: 'success', message: `Marked as ${newState}`});
+      } catch (e) {
+        setNotification({type: 'error', message: 'Failed to update'});
+      }
+  };
+
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 p-0 md:p-4 backdrop-blur-sm">
       <div className="bg-white w-full max-w-2xl md:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col h-[85vh] md:max-h-[90vh] overflow-hidden animate-in slide-in-from-bottom duration-300">
         <div className="p-4 md:p-6 border-b flex justify-between items-center bg-slate-50">
           <div>
             <h3 className="text-xl md:text-2xl font-bold text-slate-800">Room {room.number}</h3>
-            <span className={`text-xs font-bold px-2 py-1 rounded uppercase tracking-wide mt-1 inline-block ${
-              room.state === 'Occupied' ? 'bg-gray-200 text-gray-700' : 
-              room.state === 'Not Cleaned' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-            }`}>
-              {room.state}
-            </span>
+            <div className="flex items-center gap-2 mt-1">
+                <span className={`text-xs font-bold px-2 py-1 rounded uppercase tracking-wide inline-block ${
+                room.state === 'Occupied' ? 'bg-gray-200 text-gray-700' : 
+                room.state === 'Not Cleaned' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                }`}>
+                {room.state}
+                </span>
+                {room.lastCleaned && (
+                    <span className="text-xs text-slate-500 flex items-center gap-1">
+                        <Clock size={12} /> Last Cleaned: {room.lastCleaned?.toDate().toLocaleDateString()}
+                    </span>
+                )}
+            </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500">
             <XCircle size={24} />
@@ -925,7 +1325,7 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
         </div>
 
         <div className="flex border-b px-6">
-          {['overview', 'issues'].map(tab => (
+          {['overview', 'issues', 'history'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -967,22 +1367,26 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
               {/* State Controls */}
               <div className="grid grid-cols-2 gap-3">
                  <button 
-                    onClick={() => {
-                        updateDoc(doc(db, getCollectionPath('rooms', userId), room.id), { state: 'Cleaned', lastCleaned: serverTimestamp() });
-                        setNotification({type: 'success', message: 'Marked as Cleaned'});
-                    }}
+                    onClick={() => handleStateUpdate('Cleaned')}
                     className="p-3 bg-green-50 text-green-700 rounded-xl font-medium border border-green-200 hover:bg-green-100 text-center"
                  >
                     Mark Cleaned
                  </button>
                  <button 
-                    onClick={() => {
-                        updateDoc(doc(db, getCollectionPath('rooms', userId), room.id), { state: 'Not Cleaned' });
-                        setNotification({type: 'success', message: 'Marked as Dirty'});
-                    }}
+                    onClick={() => handleStateUpdate('Not Cleaned')}
                     className="p-3 bg-red-50 text-red-700 rounded-xl font-medium border border-red-200 hover:bg-red-100 text-center"
                  >
                     Mark Not Cleaned
+                 </button>
+                 <button 
+                    onClick={() => handleStateUpdate(room.state === 'Occupied' ? 'Not Cleaned' : 'Occupied')}
+                    className={`col-span-2 p-3 rounded-xl font-medium border text-center transition-colors ${
+                        room.state === 'Occupied' 
+                        ? 'bg-gray-800 text-white border-gray-900 hover:bg-gray-700' 
+                        : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'
+                    }`}
+                 >
+                    {room.state === 'Occupied' ? 'Vacate Room (Set to Not Cleaned)' : 'Mark as Occupied'}
                  </button>
               </div>
             </div>
@@ -1033,14 +1437,69 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
                </div>
             </div>
           )}
+
+          {activeTab === 'history' && (
+              <div className="space-y-4">
+                  <h4 className="font-bold text-slate-700 mb-3">Activity Log</h4>
+                  {roomHistory.length === 0 ? (
+                      <div className="text-center py-8 text-slate-400 bg-slate-50 rounded-lg">No history recorded</div>
+                  ) : (
+                      <div className="space-y-3">
+                          {roomHistory.map(entry => (
+                              <div key={entry.id} className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100">
+                                  <div className={`mt-1 p-1.5 rounded-full ${
+                                      entry.details?.includes('Cleaned') ? 'bg-green-100 text-green-600' : 
+                                      entry.details?.includes('Occupied') ? 'bg-gray-200 text-gray-600' : 'bg-blue-100 text-blue-600'
+                                  }`}>
+                                      {entry.details?.includes('Cleaned') ? <CheckCircle2 size={14} /> : <History size={14} />}
+                                  </div>
+                                  <div>
+                                      <p className="text-sm text-slate-700 font-medium">{entry.details}</p>
+                                      <p className="text-xs text-slate-400 flex items-center gap-1 mt-1">
+                                          <Calendar size={10} /> 
+                                          {entry.timestamp?.toDate().toLocaleDateString()} 
+                                          <span className="opacity-50">|</span> 
+                                          <Clock size={10} /> 
+                                          {entry.timestamp?.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                      </p>
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                  )}
+              </div>
+          )}
         </div>
       </div>
     </div>
   );
 };
 
-// 6. Reports View
+// 7. Reports View
 const ReportsView = ({ rooms, issues }) => {
+  const prepareRoomsExport = () => {
+    return rooms.map(r => ({
+      buildingName: r.buildingName,
+      floor: r.floor,
+      number: r.number,
+      state: r.state,
+      items_beds: r.items?.beds || 0,
+      items_mattress: r.items?.mattress || 0,
+      items_pillows: r.items?.pillows || 0
+    }));
+  };
+
+  const prepareIssuesExport = () => {
+    return issues.map(i => ({
+      category: i.category,
+      roomNumber: i.roomNumber,
+      description: i.description,
+      reportedOn: i.reportedAt ? i.reportedAt.toDate().toLocaleString() : '',
+      status: i.status,
+      resolvedOn: i.resolvedAt ? i.resolvedAt.toDate().toLocaleString() : ''
+    }));
+  };
+
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto pb-24 md:pb-8">
       <h2 className="text-2xl md:text-3xl font-bold text-slate-800 mb-2">Reports</h2>
@@ -1056,7 +1515,7 @@ const ReportsView = ({ rooms, issues }) => {
             Export a list of all rooms, cleaning state, inventory counts.
           </p>
           <button 
-            onClick={() => downloadCSV(rooms, `rooms_export_${new Date().toISOString().split('T')[0]}.csv`)}
+            onClick={() => downloadCSV(prepareRoomsExport(), `rooms_export_${new Date().toISOString().split('T')[0]}.csv`)}
             className="w-full py-3 bg-slate-900 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors"
           >
             <Download size={18} /> Download CSV
@@ -1072,40 +1531,18 @@ const ReportsView = ({ rooms, issues }) => {
             Export all reported issues and resolution status.
           </p>
           <button 
-            onClick={() => downloadCSV(issues, `issues_export_${new Date().toISOString().split('T')[0]}.csv`)}
+            onClick={() => downloadCSV(prepareIssuesExport(), `issues_export_${new Date().toISOString().split('T')[0]}.csv`)}
             className="w-full py-3 bg-slate-900 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors"
           >
             <Download size={18} /> Download CSV
           </button>
         </div>
       </div>
-      
-      <div className="mt-8 p-4 md:p-6 bg-slate-50 rounded-xl border border-slate-200">
-        <h3 className="font-bold text-slate-700 mb-4">Quick Stats</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-            <div className="bg-white p-4 rounded-lg shadow-sm">
-                <div className="text-2xl md:text-3xl font-bold text-slate-800">{rooms.length}</div>
-                <div className="text-[10px] md:text-xs text-slate-500 uppercase font-bold mt-1">Total Rooms</div>
-            </div>
-            <div className="bg-white p-4 rounded-lg shadow-sm">
-                <div className="text-2xl md:text-3xl font-bold text-red-500">{rooms.filter(r => r.state === 'Not Cleaned').length}</div>
-                <div className="text-[10px] md:text-xs text-slate-500 uppercase font-bold mt-1">Needs Cleaning</div>
-            </div>
-            <div className="bg-white p-4 rounded-lg shadow-sm">
-                <div className="text-2xl md:text-3xl font-bold text-orange-500">{issues.filter(i => i.status === 'Open').length}</div>
-                <div className="text-[10px] md:text-xs text-slate-500 uppercase font-bold mt-1">Open Issues</div>
-            </div>
-            <div className="bg-white p-4 rounded-lg shadow-sm">
-                <div className="text-2xl md:text-3xl font-bold text-gray-600">{rooms.filter(r => r.state === 'Occupied').length}</div>
-                <div className="text-[10px] md:text-xs text-slate-500 uppercase font-bold mt-1">Occupied</div>
-            </div>
-        </div>
-      </div>
     </div>
   );
 };
 
-// 7. Login Component
+// 8. Login Component
 const LoginScreen = ({ onLogin }) => {
     const [username, setUsername] = useState('');
     const [code, setCode] = useState('');
@@ -1184,7 +1621,7 @@ const LoginScreen = ({ onLogin }) => {
     );
 };
 
-// 8. Main App (Authenticated)
+// 9. Main App (Authenticated)
 const MainApp = ({ user, username, onLogout }) => {
     const [activeView, setActiveView] = useState('buildings');
     const [notification, setNotification] = useState(null);
@@ -1227,7 +1664,7 @@ const MainApp = ({ user, username, onLogout }) => {
             <Sidebar activeView={activeView} setActiveView={setActiveView} onLogout={onLogout} username={username} />
             
             <main className="flex-1 h-full overflow-hidden relative w-full">
-                {activeView === 'dashboard' && <ReportsView rooms={rooms} issues={issues} />}
+                {activeView === 'dashboard' && <DashboardView buildings={buildings} rooms={rooms} issues={issues} />}
                 
                 {activeView === 'buildings' && (
                 <BuildingsView 
