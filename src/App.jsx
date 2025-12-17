@@ -1,0 +1,992 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  Building2, 
+  LayoutDashboard, 
+  Wrench, 
+  FileSpreadsheet, 
+  Plus, 
+  CheckCircle2, 
+  XCircle, 
+  AlertTriangle, 
+  Trash2, 
+  Search, 
+  Filter,
+  History,
+  Bed,
+  MoreVertical,
+  LogOut,
+  Download,
+  Hotel,
+  ArrowLeft,
+  Menu
+} from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  signInAnonymously, 
+  onAuthStateChanged,
+  signInWithCustomToken 
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  updateDoc, 
+  doc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  deleteDoc,
+  serverTimestamp,
+  where,
+  writeBatch 
+} from 'firebase/firestore';
+
+// --- Firebase Initialization ---
+const firebaseConfig = {
+  apiKey: "AIzaSyB_VT79e-TNY82kKaQiKYuDeLypT7u-Qe0",
+  authDomain: "campuskeep-akonu1.firebaseapp.com",
+  projectId: "campuskeep-akonu1",
+  storageBucket: "campuskeep-akonu1.firebasestorage.app",
+  messagingSenderId: "39587484854",
+  appId: "1:39587484854:web:8e9765f22248204a334217"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = firebaseConfig.projectId;
+
+// --- Helper Functions ---
+const getCollectionPath = (collectionName) => 
+  `artifacts/${appId}/public/data/${collectionName}`;
+
+const downloadCSV = (data, filename) => {
+  if (!data || data.length === 0) return;
+  
+  // Flatten data for CSV
+  const flattenedData = data.map(row => {
+    const flatRow = {};
+    Object.keys(row).forEach(key => {
+      if (typeof row[key] === 'object' && row[key] !== null) {
+        Object.keys(row[key]).forEach(subKey => {
+          flatRow[`${key}_${subKey}`] = row[key][subKey];
+        });
+      } else {
+        flatRow[key] = row[key];
+      }
+    });
+    return flatRow;
+  });
+
+  const headers = Object.keys(flattenedData[0]);
+  const csvContent = [
+    headers.join(','),
+    ...flattenedData.map(row => headers.map(fieldName => 
+      JSON.stringify(row[fieldName] || '')
+    ).join(','))
+  ].join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  if (link.download !== undefined) {
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+};
+
+// --- Components ---
+
+// 1. Sidebar Component (Desktop)
+const Sidebar = ({ activeView, setActiveView }) => (
+  <div className="hidden md:flex w-64 bg-slate-900 text-white flex-col h-full shadow-xl">
+    <div className="p-6 border-b border-slate-800">
+      <div className="flex items-center gap-3">
+        <Hotel className="w-8 h-8 text-blue-400" />
+        <h1 className="text-xl font-bold tracking-tight">CampusKeep</h1>
+      </div>
+      <p className="text-xs text-slate-400 mt-2">Campus Management System</p>
+    </div>
+    
+    <nav className="flex-1 p-4 space-y-2">
+      <NavButton 
+        icon={<LayoutDashboard size={20} />} 
+        label="Dashboard" 
+        active={activeView === 'dashboard'} 
+        onClick={() => setActiveView('dashboard')} 
+      />
+      <NavButton 
+        icon={<Building2 size={20} />} 
+        label="Buildings & Rooms" 
+        active={activeView === 'buildings'} 
+        onClick={() => setActiveView('buildings')} 
+      />
+      <NavButton 
+        icon={<Wrench size={20} />} 
+        label="Issues Tracker" 
+        active={activeView === 'issues'} 
+        onClick={() => setActiveView('issues')} 
+      />
+      <NavButton 
+        icon={<FileSpreadsheet size={20} />} 
+        label="Reports & Export" 
+        active={activeView === 'reports'} 
+        onClick={() => setActiveView('reports')} 
+      />
+    </nav>
+
+    <div className="p-4 border-t border-slate-800">
+      <div className="flex items-center gap-2 text-slate-400 text-sm">
+        <div className="w-2 h-2 rounded-full bg-green-500"></div>
+        System Online
+      </div>
+      <div className="text-[10px] text-slate-600 mt-1 pl-4">Built By nanaboison</div>
+    </div>
+  </div>
+);
+
+// 1.5 Mobile Navigation (Bottom Bar)
+const MobileNav = ({ activeView, setActiveView }) => (
+  <div className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 text-white flex justify-around items-center p-2 z-40 border-t border-slate-800 pb-safe shadow-lg">
+    <MobileNavButton 
+      icon={<LayoutDashboard size={24} />} 
+      label="Dash" 
+      active={activeView === 'dashboard'} 
+      onClick={() => setActiveView('dashboard')} 
+    />
+    <MobileNavButton 
+      icon={<Building2 size={24} />} 
+      label="Facilities" 
+      active={activeView === 'buildings'} 
+      onClick={() => setActiveView('buildings')} 
+    />
+    <MobileNavButton 
+      icon={<Wrench size={24} />} 
+      label="Issues" 
+      active={activeView === 'issues'} 
+      onClick={() => setActiveView('issues')} 
+    />
+    <MobileNavButton 
+      icon={<FileSpreadsheet size={24} />} 
+      label="Reports" 
+      active={activeView === 'reports'} 
+      onClick={() => setActiveView('reports')} 
+    />
+  </div>
+);
+
+const MobileNavButton = ({ icon, label, active, onClick }) => (
+  <button 
+    onClick={onClick}
+    className={`flex flex-col items-center justify-center w-full py-2 transition-colors ${
+      active ? 'text-blue-400' : 'text-slate-500'
+    }`}
+  >
+    {icon}
+    <span className="text-[10px] mt-1 font-medium">{label}</span>
+  </button>
+);
+
+const NavButton = ({ icon, label, active, onClick }) => (
+  <button 
+    onClick={onClick}
+    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
+      active 
+        ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' 
+        : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+    }`}
+  >
+    {icon}
+    <span className="font-medium">{label}</span>
+  </button>
+);
+
+// 2. Setup & Buildings View
+const BuildingsView = ({ buildings, rooms, issues, setNotification }) => {
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [selectedBuilding, setSelectedBuilding] = useState(null);
+
+  // Filter rooms for selected building
+  const buildingRooms = useMemo(() => 
+    rooms.filter(r => r.buildingId === selectedBuilding?.id).sort((a,b) => a.number - b.number),
+  [rooms, selectedBuilding]);
+
+  const handleAddBuilding = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const floors = parseInt(formData.get('floors'));
+    const roomsPerFloor = parseInt(formData.get('roomsPerFloor'));
+    const name = formData.get('name');
+    const type = formData.get('type');
+
+    try {
+      // 1. Create Building
+      const docRef = await addDoc(collection(db, getCollectionPath('buildings')), {
+        name,
+        type,
+        floors,
+        createdAt: serverTimestamp()
+      });
+
+      // 2. Auto-generate rooms if Accommodation
+      if (type === 'Accommodation') {
+        const batch = writeBatch(db);
+        for (let f = 1; f <= floors; f++) {
+          for (let r = 1; r <= roomsPerFloor; r++) {
+            const roomNum = f * 100 + r; // e.g. 101, 102... 201
+            const newRoomRef = asNewDocRef('rooms');
+            batch.set(newRoomRef, {
+              buildingId: docRef.id,
+              buildingName: name,
+              floor: f,
+              number: roomNum,
+              state: 'Not Cleaned', // Default state
+              items: { beds: 2, pillows: 2, mattress: 2 },
+              lastCleaned: null
+            });
+          }
+        }
+        await batch.commit();
+      }
+      
+      setNotification({ type: 'success', message: 'Building created!' });
+      setShowAddModal(false);
+    } catch (err) {
+      console.error(err);
+      setNotification({ type: 'error', message: 'Error creating building.' });
+    }
+  };
+
+  // Helper to generate a new doc ref with auto ID
+  const asNewDocRef = (coll) => doc(collection(db, getCollectionPath(coll)));
+
+  // Mobile View Logic: If building selected, hide list, show detail
+  // Desktop View Logic: Show side-by-side
+  
+  return (
+    <div className="p-4 md:p-6 h-full flex flex-col overflow-hidden pb-20 md:pb-6">
+      <div className={`flex justify-between items-center mb-4 md:mb-6 ${selectedBuilding ? 'hidden md:flex' : 'flex'}`}>
+        <div>
+          <h2 className="text-xl md:text-2xl font-bold text-slate-800">Facilities</h2>
+          <p className="text-xs md:text-sm text-slate-500">Manage buildings & rooms.</p>
+        </div>
+        <button 
+          onClick={() => setShowAddModal(true)}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 text-sm md:text-base md:px-4 md:py-2 rounded-lg flex items-center gap-2 shadow-sm transition-all"
+        >
+          <Plus size={18} /> <span className="hidden md:inline">Add New Facility</span><span className="md:hidden">Add</span>
+        </button>
+      </div>
+
+      <div className="flex flex-col md:flex-row flex-1 gap-6 overflow-hidden">
+        {/* List of Buildings - Hidden on mobile if building selected */}
+        <div className={`w-full md:w-1/3 overflow-y-auto pr-2 space-y-3 ${selectedBuilding ? 'hidden md:block' : 'block'}`}>
+          {buildings.map(b => (
+            <div 
+              key={b.id} 
+              onClick={() => setSelectedBuilding(b)}
+              className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                selectedBuilding?.id === b.id 
+                  ? 'border-blue-500 bg-blue-50 shadow-md ring-1 ring-blue-500' 
+                  : 'border-slate-200 bg-white hover:border-blue-300 hover:shadow-sm'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-bold text-slate-700">{b.name}</h3>
+                <span className="text-[10px] md:text-xs px-2 py-1 bg-slate-100 rounded-full text-slate-600 uppercase tracking-wider font-semibold">
+                  {b.type}
+                </span>
+              </div>
+              <div className="text-sm text-slate-500 flex justify-between">
+                <span>{b.floors} Floors</span>
+                {b.type === 'Accommodation' && (
+                  <span>
+                    {rooms.filter(r => r.buildingId === b.id).length} Rooms
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+          {buildings.length === 0 && (
+            <div className="text-center p-8 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-300">
+              No buildings found. Add one.
+            </div>
+          )}
+        </div>
+
+        {/* Room Grid View - Full screen on mobile if building selected */}
+        <div className={`w-full md:w-2/3 bg-slate-50 md:rounded-2xl md:border border-slate-200 p-2 md:p-6 overflow-hidden flex flex-col ${selectedBuilding ? 'block flex-1' : 'hidden md:flex'}`}>
+          {selectedBuilding ? (
+            selectedBuilding.type === 'Accommodation' ? (
+              <RoomManager 
+                building={selectedBuilding} 
+                rooms={buildingRooms} 
+                issues={issues}
+                setNotification={setNotification}
+                onBack={() => setSelectedBuilding(null)}
+              />
+            ) : (
+              <div className="flex flex-col h-full">
+                 <button onClick={() => setSelectedBuilding(null)} className="md:hidden mb-4 flex items-center gap-2 text-slate-500">
+                    <ArrowLeft size={20} /> Back
+                 </button>
+                 <div className="flex flex-col items-center justify-center flex-1 text-slate-400 text-center">
+                    <Building2 size={48} className="mb-4 opacity-50" />
+                    <p>Select an Accommodation building to manage rooms.</p>
+                    <p className="text-sm mt-2">Walkways and Halls are managed via Issues Tracker.</p>
+                 </div>
+              </div>
+            )
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full text-slate-400">
+              <LayoutDashboard size={48} className="mb-4 opacity-50" />
+              <p>Select a building to view details</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Add Building Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end md:items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl p-6 w-full md:w-96 animate-in slide-in-from-bottom md:zoom-in duration-200">
+            <h3 className="text-lg font-bold mb-4">Add New Facility</h3>
+            <form onSubmit={handleAddBuilding} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
+                <input required name="name" className="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. Block A" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
+                <select name="type" className="w-full border border-slate-300 rounded-lg p-2 bg-white">
+                  <option value="Accommodation">Accommodation</option>
+                  <option value="TeachingHall">Teaching Hall</option>
+                  <option value="Walkway">Walkway</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Floors</label>
+                  <input required type="number" name="floors" min="1" defaultValue="1" className="w-full border border-slate-300 rounded-lg p-2" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Rooms/Floor</label>
+                  <input type="number" name="roomsPerFloor" min="1" defaultValue="10" className="w-full border border-slate-300 rounded-lg p-2" />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-6">
+                <button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Create</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 3. Room Manager
+const RoomManager = ({ building, rooms, issues, setNotification, onBack }) => {
+  const [selectedRooms, setSelectedRooms] = useState([]);
+  const [viewingRoom, setViewingRoom] = useState(null);
+
+  const getRoomColor = (room) => {
+    if (room.state === 'Occupied') return 'bg-gray-500 border-gray-600 text-white';
+    if (room.state === 'Not Cleaned') return 'bg-red-500 border-red-600 text-white';
+    if (room.state === 'Cleaned') {
+      const roomIssues = issues.filter(i => i.roomId === room.id && i.status !== 'Fixed');
+      if (roomIssues.length > 0) return 'bg-yellow-400 border-yellow-500 text-slate-900'; 
+      return 'bg-green-500 border-green-600 text-white';
+    }
+    return 'bg-slate-200 border-slate-300 text-slate-500'; 
+  };
+
+  const toggleSelectRoom = (roomId) => {
+    if (selectedRooms.includes(roomId)) {
+      setSelectedRooms(selectedRooms.filter(id => id !== roomId));
+    } else {
+      setSelectedRooms([...selectedRooms, roomId]);
+    }
+  };
+
+  const handleBulkStateChange = async (newState) => {
+    if (selectedRooms.length === 0) return;
+    try {
+      const batch = writeBatch(db);
+      selectedRooms.forEach(roomId => {
+        const ref = doc(db, getCollectionPath('rooms'), roomId);
+        const updates = { state: newState };
+        if (newState === 'Cleaned') {
+          updates.lastCleaned = serverTimestamp();
+        }
+        batch.update(ref, updates);
+        
+        const historyRef = doc(collection(db, getCollectionPath('history')));
+        batch.set(historyRef, {
+            roomId,
+            type: 'STATE_CHANGE',
+            details: `Status changed to ${newState}`,
+            timestamp: serverTimestamp()
+        });
+      });
+      await batch.commit();
+      setNotification({ type: 'success', message: `Updated ${selectedRooms.length} rooms` });
+      setSelectedRooms([]);
+    } catch (e) {
+      setNotification({ type: 'error', message: 'Update failed' });
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex flex-col gap-2 mb-4 pb-2 md:pb-4 border-b border-slate-200">
+        <div className="flex items-center gap-2">
+            {/* Mobile Back Button */}
+            <button onClick={onBack} className="md:hidden p-1 -ml-1 text-slate-600">
+                <ArrowLeft />
+            </button>
+            <h3 className="font-bold text-lg leading-none">{building.name}</h3>
+        </div>
+
+        <div className="flex justify-between items-end">
+            <div className="flex flex-wrap gap-2 md:gap-4 mt-2 text-[10px] md:text-xs font-medium">
+                <span className="flex items-center gap-1"><div className="w-2 h-2 md:w-3 md:h-3 bg-red-500 rounded-full"></div> Dirty</span>
+                <span className="flex items-center gap-1"><div className="w-2 h-2 md:w-3 md:h-3 bg-yellow-400 rounded-full"></div> Issue</span>
+                <span className="flex items-center gap-1"><div className="w-2 h-2 md:w-3 md:h-3 bg-green-500 rounded-full"></div> Ready</span>
+                <span className="flex items-center gap-1"><div className="w-2 h-2 md:w-3 md:h-3 bg-gray-500 rounded-full"></div> Full</span>
+            </div>
+        </div>
+        
+        {/* Bulk Actions */}
+        {selectedRooms.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-lg shadow-sm border mt-2">
+            <span className="text-xs md:text-sm font-bold text-slate-700 px-1">{selectedRooms.length} selected</span>
+            <div className="flex gap-1">
+                <button onClick={() => handleBulkStateChange('Cleaned')} className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded">Clean</button>
+                <button onClick={() => handleBulkStateChange('Not Cleaned')} className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded">Dirty</button>
+                <button onClick={() => handleBulkStateChange('Occupied')} className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">Full</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto pb-10">
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 md:gap-3">
+          {rooms.map(room => (
+            <div 
+              key={room.id}
+              onClick={() => setViewingRoom(room)}
+              className={`relative aspect-square rounded-lg md:rounded-xl flex flex-col items-center justify-center cursor-pointer shadow-sm hover:shadow-md transition-all border-2 ${getRoomColor(room)}`}
+            >
+              <input 
+                type="checkbox" 
+                className="absolute top-1 left-1 md:top-2 md:left-2 w-4 h-4 rounded border-white/50 cursor-pointer"
+                checked={selectedRooms.includes(room.id)}
+                onClick={(e) => { e.stopPropagation(); toggleSelectRoom(room.id); }}
+                onChange={() => {}} 
+              />
+              <span className="text-lg md:text-xl font-bold">{room.number}</span>
+              <span className="hidden md:block text-[10px] uppercase opacity-90 mt-1 font-medium">{room.state}</span>
+              
+              <div className="absolute bottom-1 right-1 md:bottom-2 md:left-2 flex gap-1">
+                 {issues.some(i => i.roomId === room.id && i.status !== 'Fixed') && (
+                    <AlertTriangle size={14} className="text-white drop-shadow-md" />
+                 )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {viewingRoom && (
+         <RoomDetailModal 
+            room={viewingRoom} 
+            issues={issues.filter(i => i.roomId === viewingRoom.id)}
+            onClose={() => setViewingRoom(null)}
+            setNotification={setNotification}
+         />
+      )}
+    </div>
+  );
+};
+
+// 4. Issues Dashboard
+const IssuesView = ({ rooms, issues, setNotification }) => {
+  const categories = ['Plumbing', 'Electrical', 'Carpentry', 'HVAC', 'General'];
+  const [filter, setFilter] = useState('All');
+
+  const handleStatusToggle = async (issue) => {
+    const newStatus = issue.status === 'Fixed' ? 'Open' : 'Fixed';
+    try {
+      await updateDoc(doc(db, getCollectionPath('issues'), issue.id), {
+        status: newStatus,
+        resolvedAt: newStatus === 'Fixed' ? serverTimestamp() : null
+      });
+      setNotification({ type: 'success', message: `Issue marked as ${newStatus}`});
+    } catch(e) {
+      setNotification({ type: 'error', message: 'Failed to update issue' });
+    }
+  };
+
+  const filteredIssues = issues.filter(i => filter === 'All' || i.category === filter);
+
+  return (
+    <div className="p-4 md:p-6 h-full flex flex-col pb-24 md:pb-6">
+       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+          <h2 className="text-2xl font-bold text-slate-800">Issues Tracker</h2>
+          <div className="flex flex-wrap gap-2">
+            {['All', ...categories].map(cat => (
+              <button 
+                key={cat}
+                onClick={() => setFilter(cat)}
+                className={`px-3 py-1 rounded-full text-xs md:text-sm font-medium transition-colors ${
+                  filter === cat ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+       </div>
+
+       <div className="flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white md:bg-transparent md:border-0">
+         {/* Desktop Table View */}
+         <table className="hidden md:table w-full text-left border-collapse bg-white rounded-xl shadow-sm">
+            <thead className="bg-slate-50 sticky top-0 z-10">
+              <tr>
+                <th className="p-4 font-semibold text-slate-600 border-b">Room</th>
+                <th className="p-4 font-semibold text-slate-600 border-b">Category</th>
+                <th className="p-4 font-semibold text-slate-600 border-b">Description</th>
+                <th className="p-4 font-semibold text-slate-600 border-b">Reported</th>
+                <th className="p-4 font-semibold text-slate-600 border-b text-right">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredIssues.map(issue => (
+                <tr key={issue.id} className="hover:bg-slate-50 border-b last:border-0">
+                  <td className="p-4 font-medium text-slate-800">{issue.roomNumber}</td>
+                  <td className="p-4">
+                    <span className={`px-2 py-1 rounded text-xs font-bold ${
+                      issue.category === 'Electrical' ? 'bg-yellow-100 text-yellow-700' :
+                      issue.category === 'Plumbing' ? 'bg-blue-100 text-blue-700' :
+                      'bg-slate-100 text-slate-700'
+                    }`}>
+                      {issue.category}
+                    </span>
+                  </td>
+                  <td className="p-4 text-slate-600">{issue.description}</td>
+                  <td className="p-4 text-sm text-slate-500">
+                    {issue.reportedAt?.toDate().toLocaleDateString()}
+                  </td>
+                  <td className="p-4 text-right">
+                    <button 
+                      onClick={() => handleStatusToggle(issue)}
+                      className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+                        issue.status === 'Fixed' 
+                          ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                          : 'bg-red-100 text-red-700 hover:bg-red-200'
+                      }`}
+                    >
+                      {issue.status === 'Fixed' ? <CheckCircle2 size={14}/> : <AlertTriangle size={14}/>}
+                      {issue.status}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+         </table>
+
+         {/* Mobile Card View */}
+         <div className="md:hidden space-y-3 p-3">
+            {filteredIssues.map(issue => (
+              <div key={issue.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                 <div className="flex justify-between items-start mb-2">
+                    <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-sm">#{issue.roomNumber}</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
+                            issue.category === 'Electrical' ? 'bg-yellow-50 text-yellow-700' :
+                            issue.category === 'Plumbing' ? 'bg-blue-50 text-blue-700' :
+                            'bg-slate-50 text-slate-600'
+                        }`}>
+                            {issue.category}
+                        </span>
+                    </div>
+                    <span className="text-[10px] text-slate-400">{issue.reportedAt?.toDate().toLocaleDateString()}</span>
+                 </div>
+                 <p className="text-sm text-slate-600 mb-3">{issue.description}</p>
+                 <button 
+                      onClick={() => handleStatusToggle(issue)}
+                      className={`w-full flex justify-center items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        issue.status === 'Fixed' 
+                          ? 'bg-green-50 text-green-700 border border-green-200' 
+                          : 'bg-red-50 text-red-700 border border-red-200'
+                      }`}
+                    >
+                      {issue.status === 'Fixed' ? <CheckCircle2 size={16}/> : <AlertTriangle size={16}/>}
+                      {issue.status}
+                </button>
+              </div>
+            ))}
+         </div>
+
+         {filteredIssues.length === 0 && (
+            <div className="p-12 text-center text-slate-400">
+            No issues found in this category.
+            </div>
+         )}
+       </div>
+    </div>
+  );
+};
+
+// 5. Room Detail Modal (History, Inventory, Actions)
+const RoomDetailModal = ({ room, issues, onClose, setNotification }) => {
+  const [activeTab, setActiveTab] = useState('overview');
+  const [newIssue, setNewIssue] = useState({ category: 'General', description: '' });
+
+  const handleUpdateInventory = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const updates = {
+      'items.beds': parseInt(fd.get('beds')),
+      'items.pillows': parseInt(fd.get('pillows')),
+      'items.mattress': parseInt(fd.get('mattress'))
+    };
+    await updateDoc(doc(db, getCollectionPath('rooms'), room.id), updates);
+    setNotification({ type: 'success', message: 'Inventory updated' });
+  };
+
+  const handleReportIssue = async (e) => {
+    e.preventDefault();
+    try {
+      await addDoc(collection(db, getCollectionPath('issues')), {
+        roomId: room.id,
+        roomNumber: room.number,
+        buildingId: room.buildingId,
+        category: newIssue.category,
+        description: newIssue.description,
+        status: 'Open',
+        reportedAt: serverTimestamp()
+      });
+      setNewIssue({ category: 'General', description: '' });
+      setNotification({ type: 'success', message: 'Issue reported' });
+    } catch(e) {
+      setNotification({ type: 'error', message: 'Failed to report issue' });
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 p-0 md:p-4 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-2xl md:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col h-[85vh] md:max-h-[90vh] overflow-hidden animate-in slide-in-from-bottom duration-300">
+        <div className="p-4 md:p-6 border-b flex justify-between items-center bg-slate-50">
+          <div>
+            <h3 className="text-xl md:text-2xl font-bold text-slate-800">Room {room.number}</h3>
+            <span className={`text-xs font-bold px-2 py-1 rounded uppercase tracking-wide mt-1 inline-block ${
+              room.state === 'Occupied' ? 'bg-gray-200 text-gray-700' : 
+              room.state === 'Not Cleaned' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+            }`}>
+              {room.state}
+            </span>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500">
+            <XCircle size={24} />
+          </button>
+        </div>
+
+        <div className="flex border-b px-6">
+          {['overview', 'issues'].map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-3 text-sm font-medium capitalize border-b-2 transition-colors ${
+                activeTab === tab ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        <div className="p-4 md:p-6 overflow-y-auto flex-1 pb-10">
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              {/* Inventory Section */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <h4 className="font-bold text-slate-700 mb-3 flex items-center gap-2">
+                  <Bed size={18} /> Base Items Inventory
+                </h4>
+                <form onSubmit={handleUpdateInventory} className="grid grid-cols-3 gap-4">
+                  {['beds', 'pillows', 'mattress'].map(item => (
+                    <div key={item}>
+                      <label className="block text-xs uppercase text-slate-500 font-bold mb-1">{item}</label>
+                      <input 
+                        name={item}
+                        type="number"
+                        defaultValue={room.items?.[item] || 0}
+                        className="w-full border rounded p-2 text-center font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                  ))}
+                  <div className="col-span-3 text-right">
+                    <button type="submit" className="text-sm text-blue-600 hover:underline font-medium">Update Inventory</button>
+                  </div>
+                </form>
+              </div>
+
+              {/* State Controls */}
+              <div className="grid grid-cols-2 gap-3">
+                 <button 
+                    onClick={() => {
+                        updateDoc(doc(db, getCollectionPath('rooms'), room.id), { state: 'Cleaned', lastCleaned: serverTimestamp() });
+                        setNotification({type: 'success', message: 'Marked as Cleaned'});
+                    }}
+                    className="p-3 bg-green-50 text-green-700 rounded-xl font-medium border border-green-200 hover:bg-green-100 text-center"
+                 >
+                    Mark Cleaned
+                 </button>
+                 <button 
+                    onClick={() => {
+                        updateDoc(doc(db, getCollectionPath('rooms'), room.id), { state: 'Not Cleaned' });
+                        setNotification({type: 'success', message: 'Marked as Dirty'});
+                    }}
+                    className="p-3 bg-red-50 text-red-700 rounded-xl font-medium border border-red-200 hover:bg-red-100 text-center"
+                 >
+                    Mark Not Cleaned
+                 </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'issues' && (
+            <div className="space-y-6">
+               <div className="bg-white border rounded-xl p-4 shadow-sm">
+                  <h4 className="font-bold text-slate-700 mb-3">Report New Issue</h4>
+                  <form onSubmit={handleReportIssue} className="space-y-3">
+                    <select 
+                      className="w-full p-2 border rounded-lg bg-slate-50"
+                      value={newIssue.category}
+                      onChange={e => setNewIssue({...newIssue, category: e.target.value})}
+                    >
+                      {['Plumbing', 'Electrical', 'Carpentry', 'HVAC', 'General'].map(c => <option key={c}>{c}</option>)}
+                    </select>
+                    <textarea 
+                      placeholder="Describe the problem..."
+                      className="w-full p-2 border rounded-lg bg-slate-50"
+                      required
+                      value={newIssue.description}
+                      onChange={e => setNewIssue({...newIssue, description: e.target.value})}
+                    />
+                    <button className="w-full bg-slate-900 text-white py-2 rounded-lg hover:bg-slate-800">Submit Report</button>
+                  </form>
+               </div>
+
+               <div>
+                 <h4 className="font-bold text-slate-700 mb-3">Active Issues</h4>
+                 {issues.length === 0 ? (
+                   <div className="text-center py-8 text-slate-400 bg-slate-50 rounded-lg">No issues reported</div>
+                 ) : (
+                   <div className="space-y-2">
+                     {issues.map(i => (
+                       <div key={i.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border">
+                          <div>
+                            <div className="font-bold text-sm text-slate-800">{i.category}</div>
+                            <div className="text-sm text-slate-600">{i.description}</div>
+                          </div>
+                          <span className={`text-xs px-2 py-1 rounded font-bold ${i.status === 'Fixed' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {i.status}
+                          </span>
+                       </div>
+                     ))}
+                   </div>
+                 )}
+               </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// 6. Reports View
+const ReportsView = ({ rooms, issues }) => {
+  return (
+    <div className="p-4 md:p-8 max-w-4xl mx-auto pb-24 md:pb-8">
+      <h2 className="text-2xl md:text-3xl font-bold text-slate-800 mb-2">Reports</h2>
+      <p className="text-slate-500 mb-6 md:mb-8">Download facility data for analysis.</p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center mb-4">
+            <Building2 size={24} />
+          </div>
+          <h3 className="text-lg font-bold text-slate-800 mb-2">Room Status Report</h3>
+          <p className="text-slate-500 text-sm mb-6">
+            Export a list of all rooms, cleaning state, inventory counts.
+          </p>
+          <button 
+            onClick={() => downloadCSV(rooms, `rooms_export_${new Date().toISOString().split('T')[0]}.csv`)}
+            className="w-full py-3 bg-slate-900 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors"
+          >
+            <Download size={18} /> Download CSV
+          </button>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-lg flex items-center justify-center mb-4">
+            <AlertTriangle size={24} />
+          </div>
+          <h3 className="text-lg font-bold text-slate-800 mb-2">Issues Log</h3>
+          <p className="text-slate-500 text-sm mb-6">
+            Export all reported issues and resolution status.
+          </p>
+          <button 
+            onClick={() => downloadCSV(issues, `issues_export_${new Date().toISOString().split('T')[0]}.csv`)}
+            className="w-full py-3 bg-slate-900 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors"
+          >
+            <Download size={18} /> Download CSV
+          </button>
+        </div>
+      </div>
+      
+      <div className="mt-8 p-4 md:p-6 bg-slate-50 rounded-xl border border-slate-200">
+        <h3 className="font-bold text-slate-700 mb-4">Quick Stats</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+            <div className="bg-white p-4 rounded-lg shadow-sm">
+                <div className="text-2xl md:text-3xl font-bold text-slate-800">{rooms.length}</div>
+                <div className="text-[10px] md:text-xs text-slate-500 uppercase font-bold mt-1">Total Rooms</div>
+            </div>
+            <div className="bg-white p-4 rounded-lg shadow-sm">
+                <div className="text-2xl md:text-3xl font-bold text-red-500">{rooms.filter(r => r.state === 'Not Cleaned').length}</div>
+                <div className="text-[10px] md:text-xs text-slate-500 uppercase font-bold mt-1">Needs Cleaning</div>
+            </div>
+            <div className="bg-white p-4 rounded-lg shadow-sm">
+                <div className="text-2xl md:text-3xl font-bold text-orange-500">{issues.filter(i => i.status === 'Open').length}</div>
+                <div className="text-[10px] md:text-xs text-slate-500 uppercase font-bold mt-1">Open Issues</div>
+            </div>
+            <div className="bg-white p-4 rounded-lg shadow-sm">
+                <div className="text-2xl md:text-3xl font-bold text-gray-600">{rooms.filter(r => r.state === 'Occupied').length}</div>
+                <div className="text-[10px] md:text-xs text-slate-500 uppercase font-bold mt-1">Occupied</div>
+            </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+// --- Main App Component ---
+export default function FacilityManager() {
+  const [user, setUser] = useState(null);
+  const [activeView, setActiveView] = useState('buildings');
+  const [notification, setNotification] = useState(null);
+  
+  // Data State
+  const [buildings, setBuildings] = useState([]);
+  const [rooms, setRooms] = useState([]);
+  const [issues, setIssues] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Auth & Data Fetching
+  useEffect(() => {
+    const initAuth = async () => {
+      await signInAnonymously(auth);
+      // if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+      //   await signInWithCustomToken(auth, __initial_auth_token);
+      // } else {
+      //   await signInAnonymously(auth);
+      // }
+    };
+    initAuth();
+    
+    return onAuthStateChanged(auth, (u) => {
+      setUser(u);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    
+    // Listeners
+    const unsubBuildings = onSnapshot(query(collection(db, getCollectionPath('buildings')), orderBy('createdAt', 'desc')), 
+      (snap) => setBuildings(snap.docs.map(d => ({id: d.id, ...d.data()}))),
+      (err) => console.error("Buildings Error:", err)
+    );
+
+    const unsubRooms = onSnapshot(collection(db, getCollectionPath('rooms')), 
+      (snap) => setRooms(snap.docs.map(d => ({id: d.id, ...d.data()}))),
+      (err) => console.error("Rooms Error:", err)
+    );
+
+    const unsubIssues = onSnapshot(query(collection(db, getCollectionPath('issues')), orderBy('reportedAt', 'desc')), 
+      (snap) => setIssues(snap.docs.map(d => ({id: d.id, ...d.data()}))),
+      (err) => console.error("Issues Error:", err)
+    );
+
+    setLoading(false);
+    return () => { unsubBuildings(); unsubRooms(); unsubIssues(); };
+  }, [user]);
+
+  // Auto-dismiss notification
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
+
+  if (loading) return <div className="h-screen w-full flex items-center justify-center bg-slate-100 text-slate-400">Loading Facility Manager...</div>;
+
+  return (
+    <div className="flex h-screen w-full bg-slate-100 font-sans text-slate-900 overflow-hidden">
+      <Sidebar activeView={activeView} setActiveView={setActiveView} />
+      
+      <main className="flex-1 h-full overflow-hidden relative w-full">
+        {/* Top bar logic usually goes here if needed */}
+        
+        {activeView === 'dashboard' && (
+          // Re-use Reports view logic for simplified Dashboard for this demo
+           <ReportsView rooms={rooms} issues={issues} />
+        )}
+        
+        {activeView === 'buildings' && (
+          <BuildingsView 
+            buildings={buildings} 
+            rooms={rooms} 
+            issues={issues} 
+            setNotification={setNotification} 
+          />
+        )}
+
+        {activeView === 'issues' && (
+          <IssuesView 
+            rooms={rooms} 
+            issues={issues} 
+            setNotification={setNotification} 
+          />
+        )}
+
+        {activeView === 'reports' && (
+          <ReportsView rooms={rooms} issues={issues} />
+        )}
+
+        <MobileNav activeView={activeView} setActiveView={setActiveView} />
+
+        {/* Global Notification Toast */}
+        {notification && (
+          <div className={`fixed bottom-20 md:bottom-6 right-6 px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-right duration-300 z-[100] ${
+            notification.type === 'success' ? 'bg-slate-900 text-green-400' : 'bg-red-600 text-white'
+          }`}>
+            {notification.type === 'success' ? <CheckCircle2 /> : <AlertTriangle />}
+            <span className="font-medium">{notification.message}</span>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
