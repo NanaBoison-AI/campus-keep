@@ -120,7 +120,7 @@ const Sidebar = ({ activeView, setActiveView, onLogout, username }) => (
       <div className="flex items-center gap-3">
         {/* Replace this URL with your logo */}
         <img 
-          src="/campuskeep_logo.png" 
+          src="https://cdn-icons-png.flaticon.com/512/5526/5526465.png" 
           alt="Campus Logo" 
           className="w-8 h-8 object-contain bg-white/10 rounded p-1"
         />
@@ -229,7 +229,7 @@ const NavButton = ({ icon, label, active, onClick }) => (
   </button>
 );
 
-// 2. Dashboard View (New)
+// 2. Dashboard View
 const DashboardView = ({ buildings, rooms, issues }) => {
   const stats = useMemo(() => {
     const s = {
@@ -243,15 +243,13 @@ const DashboardView = ({ buildings, rooms, issues }) => {
 
     rooms.forEach(r => {
       if (s.roomsByState[r.state] !== undefined) s.roomsByState[r.state]++;
-      else s.roomsByState[r.state] = (s.roomsByState[r.state] || 0) + 1; // Safety for unknown states
+      else s.roomsByState[r.state] = (s.roomsByState[r.state] || 0) + 1; 
     });
 
     issues.forEach(i => {
-      // Category
       const cat = i.category || 'Uncategorized';
       s.issuesByCategory[cat] = (s.issuesByCategory[cat] || 0) + 1;
 
-      // Status
       if (i.status === 'Open') s.issuesOpen++;
       else if (i.status === 'Fixed') s.issuesFixed++;
     });
@@ -260,77 +258,79 @@ const DashboardView = ({ buildings, rooms, issues }) => {
   }, [buildings, rooms, issues]);
 
   return (
-    <div className="p-4 md:p-8 max-w-6xl mx-auto pb-24 md:pb-8">
-      <h2 className="text-2xl md:text-3xl font-bold text-slate-800 mb-6 flex items-center gap-3">
-        <PieChart className="text-slate-400" /> Dashboard
-      </h2>
+    <div className="h-full overflow-y-auto">
+      <div className="p-4 md:p-8 max-w-6xl mx-auto pb-24 md:pb-8">
+        <h2 className="text-2xl md:text-3xl font-bold text-slate-800 mb-6 flex items-center gap-3">
+          <PieChart className="text-slate-400" /> Dashboard
+        </h2>
 
-      {/* Top Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-           <div className="text-3xl font-bold text-slate-800">{stats.facilities}</div>
-           <div className="text-xs text-slate-500 uppercase font-bold mt-1">Facilities</div>
-        </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-           <div className="text-3xl font-bold text-slate-800">{stats.rooms}</div>
-           <div className="text-xs text-slate-500 uppercase font-bold mt-1">Total Rooms</div>
-        </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-           <div className="text-3xl font-bold text-orange-600">{stats.issuesOpen}</div>
-           <div className="text-xs text-slate-500 uppercase font-bold mt-1">Open Issues</div>
-        </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-           <div className="text-3xl font-bold text-green-600">{stats.issuesFixed}</div>
-           <div className="text-xs text-slate-500 uppercase font-bold mt-1">Resolved Issues</div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Room States */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
-            <Bed size={18} /> Room Status Breakdown
-          </h3>
-          <div className="space-y-4">
-             <div className="flex items-center justify-between p-4 bg-red-50 rounded-lg border border-red-100">
-                <div className="flex items-center gap-3">
-                   <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                   <span className="font-medium text-slate-700">Not Cleaned</span>
-                </div>
-                <span className="font-bold text-xl text-slate-800">{stats.roomsByState['Not Cleaned'] || 0}</span>
-             </div>
-             <div className="flex items-center justify-between p-4 bg-green-50 rounded-lg border border-green-100">
-                <div className="flex items-center gap-3">
-                   <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                   <span className="font-medium text-slate-700">Cleaned</span>
-                </div>
-                <span className="font-bold text-xl text-slate-800">{stats.roomsByState['Cleaned'] || 0}</span>
-             </div>
-             <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100">
-                <div className="flex items-center gap-3">
-                   <div className="w-3 h-3 rounded-full bg-gray-500"></div>
-                   <span className="font-medium text-slate-700">Occupied</span>
-                </div>
-                <span className="font-bold text-xl text-slate-800">{stats.roomsByState['Occupied'] || 0}</span>
-             </div>
+        {/* Top Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <div className="text-3xl font-bold text-slate-800">{stats.facilities}</div>
+            <div className="text-xs text-slate-500 uppercase font-bold mt-1">Facilities</div>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <div className="text-3xl font-bold text-slate-800">{stats.rooms}</div>
+            <div className="text-xs text-slate-500 uppercase font-bold mt-1">Total Rooms</div>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <div className="text-3xl font-bold text-orange-600">{stats.issuesOpen}</div>
+            <div className="text-xs text-slate-500 uppercase font-bold mt-1">Open Issues</div>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <div className="text-3xl font-bold text-green-600">{stats.issuesFixed}</div>
+            <div className="text-xs text-slate-500 uppercase font-bold mt-1">Resolved Issues</div>
           </div>
         </div>
 
-        {/* Issue Categories */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
-            <AlertTriangle size={18} /> Issues by Category
-          </h3>
-          <div className="grid grid-cols-2 gap-4">
-             {Object.entries(stats.issuesByCategory).map(([cat, count]) => (
-                <div key={cat} className="p-4 bg-slate-50 border border-slate-100 rounded-lg flex flex-col items-center justify-center text-center">
-                   <span className="text-3xl font-bold text-slate-800 mb-1">{count}</span>
-                   <span className="text-xs text-slate-500 uppercase font-bold">{cat}</span>
-                </div>
-             ))}
-             {Object.keys(stats.issuesByCategory).length === 0 && (
-                <div className="col-span-2 text-center text-slate-400 py-8">No issues recorded yet</div>
-             )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Room States */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+              <Bed size={18} /> Room Status Breakdown
+            </h3>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-4 bg-red-50 rounded-lg border border-red-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                    <span className="font-medium text-slate-700">Not Cleaned</span>
+                  </div>
+                  <span className="font-bold text-xl text-slate-800">{stats.roomsByState['Not Cleaned'] || 0}</span>
+              </div>
+              <div className="flex items-center justify-between p-4 bg-green-50 rounded-lg border border-green-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                    <span className="font-medium text-slate-700">Cleaned</span>
+                  </div>
+                  <span className="font-bold text-xl text-slate-800">{stats.roomsByState['Cleaned'] || 0}</span>
+              </div>
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full bg-gray-500"></div>
+                    <span className="font-medium text-slate-700">Occupied</span>
+                  </div>
+                  <span className="font-bold text-xl text-slate-800">{stats.roomsByState['Occupied'] || 0}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Issue Categories */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+              <AlertTriangle size={18} /> Issues by Category
+            </h3>
+            <div className="grid grid-cols-2 gap-4">
+              {Object.entries(stats.issuesByCategory).map(([cat, count]) => (
+                  <div key={cat} className="p-4 bg-slate-50 border border-slate-100 rounded-lg flex flex-col items-center justify-center text-center">
+                    <span className="text-3xl font-bold text-slate-800 mb-1">{count}</span>
+                    <span className="text-xs text-slate-500 uppercase font-bold">{cat}</span>
+                  </div>
+              ))}
+              {Object.keys(stats.issuesByCategory).length === 0 && (
+                  <div className="col-span-2 text-center text-slate-400 py-8">No issues recorded yet</div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -724,7 +724,7 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
                                         <input 
                                             required 
                                             type="number" 
-                                            min="1"
+                                            min="1" 
                                             max="100"
                                             disabled={isEditing} // Prevent changing structure during edit
                                             title={isEditing ? "Structure changes disabled in edit mode" : ""}
@@ -842,7 +842,7 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
     );
 };
 
-// 4. Room Manager
+// 3. Room Manager
 const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId }) => {
   const [selectedRooms, setSelectedRooms] = useState([]);
   const [viewingRoom, setViewingRoom] = useState(null);
@@ -857,6 +857,30 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
     });
     return grouped;
   }, [rooms]);
+
+  // NEW: Calculate Stats based on visual state
+  const stats = useMemo(() => {
+    let counts = {
+        occupied: 0,
+        dirty: 0,
+        ready: 0,
+        issue: 0 // This represents "Cleaned with Issue" (Yellow)
+    };
+    
+    rooms.forEach(room => {
+        if (room.state === 'Occupied') {
+            counts.occupied++;
+        } else if (room.state === 'Not Cleaned') {
+            counts.dirty++;
+        } else {
+            // State is Cleaned
+            const hasIssue = issues.some(i => i.roomId === room.id && i.status !== 'Fixed');
+            if (hasIssue) counts.issue++;
+            else counts.ready++;
+        }
+    });
+    return counts;
+  }, [rooms, issues]);
 
   const getRoomColor = (room) => {
     if (room.state === 'Occupied') return 'bg-gray-500 border-gray-600 text-white';
@@ -918,10 +942,13 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
 
         <div className="flex justify-between items-end">
             <div className="flex flex-wrap gap-2 md:gap-4 mt-2 text-[10px] md:text-xs font-medium">
-                <span className="flex items-center gap-1"><div className="w-2 h-2 md:w-3 md:h-3 bg-red-500 rounded-full"></div> Dirty</span>
-                <span className="flex items-center gap-1"><div className="w-2 h-2 md:w-3 md:h-3 bg-yellow-400 rounded-full"></div> Issue</span>
-                <span className="flex items-center gap-1"><div className="w-2 h-2 md:w-3 md:h-3 bg-green-500 rounded-full"></div> Ready</span>
-                <span className="flex items-center gap-1"><div className="w-2 h-2 md:w-3 md:h-3 bg-gray-500 rounded-full"></div> Full</span>
+                <span className="flex items-center gap-1"><div className="w-2 h-2 md:w-3 md:h-3 bg-red-500 rounded-full"></div> Dirty <span className="text-slate-500">({stats.dirty})</span></span>
+                <span className="flex items-center gap-1"><div className="w-2 h-2 md:w-3 md:h-3 bg-yellow-400 rounded-full"></div> Issue <span className="text-slate-500">({stats.issue})</span></span>
+                <span className="flex items-center gap-1"><div className="w-2 h-2 md:w-3 md:h-3 bg-green-500 rounded-full"></div> Ready <span className="text-slate-500">({stats.ready})</span></span>
+                <span className="flex items-center gap-1"><div className="w-2 h-2 md:w-3 md:h-3 bg-gray-500 rounded-full"></div> Full <span className="text-slate-500">({stats.occupied})</span></span>
+            </div>
+            <div className="text-[10px] md:text-xs font-bold text-slate-400">
+                Total: {rooms.length}
             </div>
         </div>
         
@@ -990,12 +1017,23 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
   );
 };
 
-// 5. Issues Dashboard
+// 4. Issues Dashboard
 const IssuesView = ({ rooms, issues, setNotification, userId }) => {
   const categories = ['Plumbing', 'Electrical', 'Carpentry', 'HVAC', 'General'];
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
   const [sortConfig, setSortConfig] = useState({ key: 'reportedAt', direction: 'desc' });
+
+  // Default Date Filter: Last 7 Days
+  const [dateFilter, setDateFilter] = useState(() => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - 7);
+    return {
+      start: start.toISOString().split('T')[0],
+      end: end.toISOString().split('T')[0]
+    };
+  });
 
   const handleStatusToggle = async (issue) => {
     const newStatus = issue.status === 'Fixed' ? 'Open' : 'Fixed';
@@ -1021,7 +1059,19 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
   const filteredIssues = issues.filter(i => {
     const matchesCategory = categoryFilter === 'All' || i.category === categoryFilter;
     const matchesStatus = statusFilter === 'All' || i.status === statusFilter;
-    return matchesCategory && matchesStatus;
+    
+    // Date Filter
+    let matchesDate = true;
+    if (i.reportedAt) {
+        const issueDate = i.reportedAt.toDate();
+        const start = new Date(dateFilter.start);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(dateFilter.end);
+        end.setHours(23, 59, 59, 999);
+        matchesDate = issueDate >= start && issueDate <= end;
+    }
+
+    return matchesCategory && matchesStatus && matchesDate;
   });
 
   const sortedIssues = useMemo(() => {
@@ -1065,21 +1115,45 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
           <h2 className="text-2xl font-bold text-slate-800">Issues Tracker</h2>
           
           <div className="flex flex-col gap-3 w-full md:w-auto">
-            {/* Status Filters */}
-            <div className="flex gap-2 bg-white p-1 rounded-lg border border-slate-200 self-start md:self-end">
-                {['All', 'Open', 'Fixed'].map(status => (
-                    <button
-                        key={status}
-                        onClick={() => setStatusFilter(status)}
-                        className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
-                            statusFilter === status 
-                            ? (status === 'Open' ? 'bg-red-100 text-red-700' : status === 'Fixed' ? 'bg-green-100 text-green-700' : 'bg-slate-800 text-white')
-                            : 'text-slate-500 hover:bg-slate-50'
-                        }`}
-                    >
-                        {status}
-                    </button>
-                ))}
+            <div className="flex flex-col md:flex-row gap-2">
+                {/* Date Filters */}
+                <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200">
+                    <div className="flex items-center gap-1 px-2">
+                        <Calendar size={14} className="text-slate-400"/>
+                        <input 
+                            type="date" 
+                            value={dateFilter.start}
+                            onChange={(e) => setDateFilter(prev => ({...prev, start: e.target.value}))}
+                            className="text-xs font-medium text-slate-600 outline-none bg-transparent"
+                        />
+                    </div>
+                    <span className="text-slate-300">-</span>
+                    <div className="flex items-center gap-1 px-2">
+                        <input 
+                            type="date" 
+                            value={dateFilter.end}
+                            onChange={(e) => setDateFilter(prev => ({...prev, end: e.target.value}))}
+                            className="text-xs font-medium text-slate-600 outline-none bg-transparent"
+                        />
+                    </div>
+                </div>
+
+                {/* Status Filters */}
+                <div className="flex gap-2 bg-white p-1 rounded-lg border border-slate-200">
+                    {['All', 'Open', 'Fixed'].map(status => (
+                        <button
+                            key={status}
+                            onClick={() => setStatusFilter(status)}
+                            className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                                statusFilter === status 
+                                ? (status === 'Open' ? 'bg-red-100 text-red-700' : status === 'Fixed' ? 'bg-green-100 text-green-700' : 'bg-slate-800 text-white')
+                                : 'text-slate-500 hover:bg-slate-50'
+                            }`}
+                        >
+                            {status}
+                        </button>
+                    ))}
+                </div>
             </div>
 
             {/* Category Filters */}
@@ -1224,7 +1298,7 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
   );
 };
 
-// 6. Room Detail Modal
+// 5. Room Detail Modal (History, Inventory, Actions)
 const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [newIssue, setNewIssue] = useState({ category: 'General', description: '' });
@@ -1475,7 +1549,7 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
   );
 };
 
-// 7. Reports View
+// 6. Reports View
 const ReportsView = ({ rooms, issues }) => {
   const prepareRoomsExport = () => {
     return rooms.map(r => ({
@@ -1501,48 +1575,50 @@ const ReportsView = ({ rooms, issues }) => {
   };
 
   return (
-    <div className="p-4 md:p-8 max-w-4xl mx-auto pb-24 md:pb-8">
-      <h2 className="text-2xl md:text-3xl font-bold text-slate-800 mb-2">Reports</h2>
-      <p className="text-slate-500 mb-6 md:mb-8">Download facility data for analysis.</p>
+    <div className="h-full overflow-y-auto">
+      <div className="p-4 md:p-8 max-w-4xl mx-auto pb-24 md:pb-8">
+        <h2 className="text-2xl md:text-3xl font-bold text-slate-800 mb-2">Reports</h2>
+        <p className="text-slate-500 mb-6 md:mb-8">Download facility data for analysis.</p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center mb-4">
-            <Building2 size={24} />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center mb-4">
+              <Building2 size={24} />
+            </div>
+            <h3 className="text-lg font-bold text-slate-800 mb-2">Room Status Report</h3>
+            <p className="text-slate-500 text-sm mb-6">
+              Export a list of all rooms, cleaning state, inventory counts.
+            </p>
+            <button 
+              onClick={() => downloadCSV(prepareRoomsExport(), `rooms_export_${new Date().toISOString().split('T')[0]}.csv`)}
+              className="w-full py-3 bg-slate-900 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors"
+            >
+              <Download size={18} /> Download CSV
+            </button>
           </div>
-          <h3 className="text-lg font-bold text-slate-800 mb-2">Room Status Report</h3>
-          <p className="text-slate-500 text-sm mb-6">
-            Export a list of all rooms, cleaning state, inventory counts.
-          </p>
-          <button 
-            onClick={() => downloadCSV(prepareRoomsExport(), `rooms_export_${new Date().toISOString().split('T')[0]}.csv`)}
-            className="w-full py-3 bg-slate-900 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors"
-          >
-            <Download size={18} /> Download CSV
-          </button>
-        </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-lg flex items-center justify-center mb-4">
-            <AlertTriangle size={24} />
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-lg flex items-center justify-center mb-4">
+              <AlertTriangle size={24} />
+            </div>
+            <h3 className="text-lg font-bold text-slate-800 mb-2">Issues Log</h3>
+            <p className="text-slate-500 text-sm mb-6">
+              Export all reported issues and resolution status.
+            </p>
+            <button 
+              onClick={() => downloadCSV(prepareIssuesExport(), `issues_export_${new Date().toISOString().split('T')[0]}.csv`)}
+              className="w-full py-3 bg-slate-900 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors"
+            >
+              <Download size={18} /> Download CSV
+            </button>
           </div>
-          <h3 className="text-lg font-bold text-slate-800 mb-2">Issues Log</h3>
-          <p className="text-slate-500 text-sm mb-6">
-            Export all reported issues and resolution status.
-          </p>
-          <button 
-            onClick={() => downloadCSV(prepareIssuesExport(), `issues_export_${new Date().toISOString().split('T')[0]}.csv`)}
-            className="w-full py-3 bg-slate-900 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors"
-          >
-            <Download size={18} /> Download CSV
-          </button>
         </div>
       </div>
     </div>
   );
 };
 
-// 8. Login Component
+// 7. Login Component
 const LoginScreen = ({ onLogin }) => {
     const [username, setUsername] = useState('');
     const [code, setCode] = useState('');
@@ -1621,7 +1697,7 @@ const LoginScreen = ({ onLogin }) => {
     );
 };
 
-// 9. Main App (Authenticated)
+// 8. Main App (Authenticated)
 const MainApp = ({ user, username, onLogout }) => {
     const [activeView, setActiveView] = useState('buildings');
     const [notification, setNotification] = useState(null);
