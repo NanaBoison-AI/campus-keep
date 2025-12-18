@@ -27,7 +27,8 @@ import {
   Calendar,
   Clock,
   ArrowUpDown,
-  PieChart
+  PieChart,
+  BarChart3
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -120,7 +121,7 @@ const Sidebar = ({ activeView, setActiveView, onLogout, username }) => (
       <div className="flex items-center gap-3">
         {/* Replace this URL with your logo */}
         <img 
-          src="https://cdn-icons-png.flaticon.com/512/5526/5526465.png" 
+          src="/campuskeep_logo.png" 
           alt="Campus Logo" 
           className="w-8 h-8 object-contain bg-white/10 rounded p-1"
         />
@@ -724,7 +725,7 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
                                         <input 
                                             required 
                                             type="number" 
-                                            min="1" 
+                                            min="1"
                                             max="100"
                                             disabled={isEditing} // Prevent changing structure during edit
                                             title={isEditing ? "Structure changes disabled in edit mode" : ""}
@@ -1035,6 +1036,25 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
     };
   });
 
+  const issuesInDateRange = useMemo(() => {
+    return issues.filter(i => {
+        if (!i.reportedAt) return false;
+        const issueDate = i.reportedAt.toDate();
+        const start = new Date(dateFilter.start);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(dateFilter.end);
+        end.setHours(23, 59, 59, 999);
+        return issueDate >= start && issueDate <= end;
+    });
+  }, [issues, dateFilter]);
+
+  const stats = useMemo(() => {
+    const total = issuesInDateRange.length;
+    const open = issuesInDateRange.filter(i => i.status === 'Open').length;
+    const fixed = issuesInDateRange.filter(i => i.status === 'Fixed').length;
+    return { total, open, fixed };
+  }, [issuesInDateRange]);
+
   const handleStatusToggle = async (issue) => {
     const newStatus = issue.status === 'Fixed' ? 'Open' : 'Fixed';
     try {
@@ -1056,22 +1076,10 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
     setSortConfig({ key, direction });
   };
 
-  const filteredIssues = issues.filter(i => {
+  const filteredIssues = issuesInDateRange.filter(i => {
     const matchesCategory = categoryFilter === 'All' || i.category === categoryFilter;
     const matchesStatus = statusFilter === 'All' || i.status === statusFilter;
-    
-    // Date Filter
-    let matchesDate = true;
-    if (i.reportedAt) {
-        const issueDate = i.reportedAt.toDate();
-        const start = new Date(dateFilter.start);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(dateFilter.end);
-        end.setHours(23, 59, 59, 999);
-        matchesDate = issueDate >= start && issueDate <= end;
-    }
-
-    return matchesCategory && matchesStatus && matchesDate;
+    return matchesCategory && matchesStatus;
   });
 
   const sortedIssues = useMemo(() => {
@@ -1109,79 +1117,119 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
     return sorted;
   }, [filteredIssues, rooms, sortConfig]);
 
+  const handleExport = () => {
+    const exportData = sortedIssues.map(i => ({
+      Floor: i.floor,
+      Room: i.roomNumber,
+      Category: i.category,
+      Description: i.description,
+      Reported: i.reportedAt ? i.reportedAt.toDate().toLocaleString() : '',
+      Resolved: i.resolvedAt ? i.resolvedAt.toDate().toLocaleString() : '',
+      Status: i.status
+    }));
+    downloadCSV(exportData, `issues_list_${new Date().toISOString().split('T')[0]}.csv`);
+  };
+
   return (
     <div className="p-4 md:p-6 h-full flex flex-col pb-24 md:pb-6">
-       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-          <h2 className="text-2xl font-bold text-slate-800">Issues Tracker</h2>
-          
-          <div className="flex flex-col gap-3 w-full md:w-auto">
-            <div className="flex flex-col md:flex-row gap-2">
-                {/* Date Filters */}
-                <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200">
-                    <div className="flex items-center gap-1 px-2">
-                        <Calendar size={14} className="text-slate-400"/>
-                        <input 
-                            type="date" 
-                            value={dateFilter.start}
-                            onChange={(e) => setDateFilter(prev => ({...prev, start: e.target.value}))}
-                            className="text-xs font-medium text-slate-600 outline-none bg-transparent"
-                        />
+       <div className="flex flex-col gap-6">
+           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div className="flex items-center gap-3">
+                <h2 className="text-2xl font-bold text-slate-800">Issues Tracker</h2>
+                <button 
+                    onClick={handleExport}
+                    className="p-2 bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm"
+                    title="Export current list"
+                >
+                    <Download size={20} />
+                </button>
+              </div>
+              
+              <div className="flex flex-col gap-3 w-full md:w-auto">
+                <div className="flex flex-col md:flex-row gap-2">
+                    {/* Date Filters */}
+                    <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200">
+                        <div className="flex items-center gap-1 px-2">
+                            <Calendar size={14} className="text-slate-400"/>
+                            <input 
+                                type="date" 
+                                value={dateFilter.start}
+                                onChange={(e) => setDateFilter(prev => ({...prev, start: e.target.value}))}
+                                className="text-xs font-medium text-slate-600 outline-none bg-transparent"
+                            />
+                        </div>
+                        <span className="text-slate-300">-</span>
+                        <div className="flex items-center gap-1 px-2">
+                            <input 
+                                type="date" 
+                                value={dateFilter.end}
+                                onChange={(e) => setDateFilter(prev => ({...prev, end: e.target.value}))}
+                                className="text-xs font-medium text-slate-600 outline-none bg-transparent"
+                            />
+                        </div>
                     </div>
-                    <span className="text-slate-300">-</span>
-                    <div className="flex items-center gap-1 px-2">
-                        <input 
-                            type="date" 
-                            value={dateFilter.end}
-                            onChange={(e) => setDateFilter(prev => ({...prev, end: e.target.value}))}
-                            className="text-xs font-medium text-slate-600 outline-none bg-transparent"
-                        />
+
+                    {/* Status Filters */}
+                    <div className="flex gap-2 bg-white p-1 rounded-lg border border-slate-200">
+                        {['All', 'Open', 'Fixed'].map(status => (
+                            <button
+                                key={status}
+                                onClick={() => setStatusFilter(status)}
+                                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                                    statusFilter === status 
+                                    ? (status === 'Open' ? 'bg-red-100 text-red-700' : status === 'Fixed' ? 'bg-green-100 text-green-700' : 'bg-slate-800 text-white')
+                                    : 'text-slate-500 hover:bg-slate-50'
+                                }`}
+                            >
+                                {status}
+                            </button>
+                        ))}
                     </div>
                 </div>
 
-                {/* Status Filters */}
-                <div className="flex gap-2 bg-white p-1 rounded-lg border border-slate-200">
-                    {['All', 'Open', 'Fixed'].map(status => (
-                        <button
-                            key={status}
-                            onClick={() => setStatusFilter(status)}
-                            className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
-                                statusFilter === status 
-                                ? (status === 'Open' ? 'bg-red-100 text-red-700' : status === 'Fixed' ? 'bg-green-100 text-green-700' : 'bg-slate-800 text-white')
-                                : 'text-slate-500 hover:bg-slate-50'
-                            }`}
-                        >
-                            {status}
-                        </button>
+                {/* Category Filters */}
+                <div className="flex flex-wrap gap-2">
+                    <button 
+                        onClick={() => setCategoryFilter('All')}
+                        className={`px-3 py-1 rounded-full text-xs md:text-sm font-medium transition-colors ${
+                        categoryFilter === 'All' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                        }`}
+                    >
+                        All Cats
+                    </button>
+                    {categories.map(cat => (
+                    <button 
+                        key={cat}
+                        onClick={() => setCategoryFilter(cat)}
+                        className={`px-3 py-1 rounded-full text-xs md:text-sm font-medium transition-colors ${
+                        categoryFilter === cat ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                        }`}
+                    >
+                        {cat}
+                    </button>
                     ))}
                 </div>
-            </div>
+              </div>
+           </div>
 
-            {/* Category Filters */}
-            <div className="flex flex-wrap gap-2">
-                <button 
-                    onClick={() => setCategoryFilter('All')}
-                    className={`px-3 py-1 rounded-full text-xs md:text-sm font-medium transition-colors ${
-                    categoryFilter === 'All' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                    }`}
-                >
-                    All Cats
-                </button>
-                {categories.map(cat => (
-                <button 
-                    key={cat}
-                    onClick={() => setCategoryFilter(cat)}
-                    className={`px-3 py-1 rounded-full text-xs md:text-sm font-medium transition-colors ${
-                    categoryFilter === cat ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                    }`}
-                >
-                    {cat}
-                </button>
-                ))}
-            </div>
-          </div>
+           {/* Stats Row */}
+           <div className="grid grid-cols-3 gap-4">
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="text-2xl font-bold text-slate-800">{stats.total}</div>
+                    <div className="text-xs text-slate-500 font-bold uppercase">Total Issues</div>
+                </div>
+                <div className="bg-white p-4 rounded-xl border border-red-100 bg-red-50 shadow-sm">
+                    <div className="text-2xl font-bold text-red-600">{stats.open}</div>
+                    <div className="text-xs text-red-600/70 font-bold uppercase">Pending</div>
+                </div>
+                <div className="bg-white p-4 rounded-xl border border-green-100 bg-green-50 shadow-sm">
+                    <div className="text-2xl font-bold text-green-600">{stats.fixed}</div>
+                    <div className="text-xs text-green-600/70 font-bold uppercase">Resolved</div>
+                </div>
+           </div>
        </div>
 
-       <div className="flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white md:bg-transparent md:border-0">
+       <div className="flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white md:bg-transparent md:border-0 mt-6">
          {/* Desktop Table View */}
          <table className="hidden md:table w-full text-left border-collapse bg-white rounded-xl shadow-sm">
             <thead className="bg-slate-50 sticky top-0 z-10">
