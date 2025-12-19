@@ -1841,9 +1841,10 @@ const ReportsView = ({ rooms, issues, userId }) => {
                             <Download size={16} /> Export Data
                         </button>
                     </div>
-                    <div className="max-h-64 overflow-y-auto border rounded-lg">
+                    {/* Removed max-h-64 and overflow-y-auto to allow full height expansion */}
+                    <div className="border rounded-lg overflow-hidden"> 
                         <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-50 text-slate-600 font-medium sticky top-0">
+                            <thead className="bg-slate-50 text-slate-600 font-medium border-b border-slate-200">
                                 <tr>
                                     <th 
                                         className="p-3 cursor-pointer hover:bg-slate-100"
