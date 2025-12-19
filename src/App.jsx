@@ -198,6 +198,12 @@ const MobileNav = ({ activeView, setActiveView, onLogout }) => (
       onClick={() => setActiveView('issues')} 
     />
     <MobileNavButton 
+      icon={<FileSpreadsheet size={24} />} 
+      label="Reports" 
+      active={activeView === 'reports'} 
+      onClick={() => setActiveView('reports')} 
+    />
+    <MobileNavButton 
       icon={<LogOut size={24} className="text-red-400" />} 
       label="Exit" 
       active={false}
@@ -1134,7 +1140,7 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
 
   return (
     <div className="p-4 md:p-6 h-full flex flex-col pb-24 md:pb-6">
-       <div className="flex flex-col gap-6">
+       <div className="flex flex-col gap-4 md:gap-6 flex-shrink-0">
            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div className="flex items-center gap-3">
                 <h2 className="text-2xl font-bold text-slate-800">Issues Tracker</h2>
@@ -1214,24 +1220,24 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
               </div>
            </div>
 
-           {/* Stats Row */}
-           <div className="grid grid-cols-3 gap-4">
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                    <div className="text-2xl font-bold text-slate-800">{stats.total}</div>
-                    <div className="text-xs text-slate-500 font-bold uppercase">Total Issues</div>
+           {/* Stats Row - Compact on Mobile */}
+           <div className="grid grid-cols-3 gap-2 md:gap-4">
+                <div className="bg-white p-2 md:p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col items-center md:items-start text-center md:text-left">
+                    <div className="text-xl md:text-2xl font-bold text-slate-800">{stats.total}</div>
+                    <div className="text-[10px] md:text-xs text-slate-500 font-bold uppercase truncate w-full">Total</div>
                 </div>
-                <div className="bg-white p-4 rounded-xl border border-red-100 bg-red-50 shadow-sm">
-                    <div className="text-2xl font-bold text-red-600">{stats.open}</div>
-                    <div className="text-xs text-red-600/70 font-bold uppercase">Pending</div>
+                <div className="bg-white p-2 md:p-4 rounded-xl border border-red-100 bg-red-50 shadow-sm flex flex-col items-center md:items-start text-center md:text-left">
+                    <div className="text-xl md:text-2xl font-bold text-red-600">{stats.open}</div>
+                    <div className="text-[10px] md:text-xs text-red-600/70 font-bold uppercase truncate w-full">Pending</div>
                 </div>
-                <div className="bg-white p-4 rounded-xl border border-green-100 bg-green-50 shadow-sm">
-                    <div className="text-2xl font-bold text-green-600">{stats.fixed}</div>
-                    <div className="text-xs text-green-600/70 font-bold uppercase">Resolved</div>
+                <div className="bg-white p-2 md:p-4 rounded-xl border border-green-100 bg-green-50 shadow-sm flex flex-col items-center md:items-start text-center md:text-left">
+                    <div className="text-xl md:text-2xl font-bold text-green-600">{stats.fixed}</div>
+                    <div className="text-[10px] md:text-xs text-green-600/70 font-bold uppercase truncate w-full">Resolved</div>
                 </div>
            </div>
        </div>
 
-       <div className="flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white md:bg-transparent md:border-0 mt-6">
+       <div className="flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white md:bg-transparent md:border-0 mt-3 md:mt-6">
          {/* Desktop Table View */}
          <table className="hidden md:table w-full text-left border-collapse bg-white rounded-xl shadow-sm">
             <thead className="bg-slate-50 sticky top-0 z-10">
