@@ -28,7 +28,8 @@ import {
   Clock,
   ArrowUpDown,
   PieChart,
-  BarChart3
+  BarChart3,
+  RefreshCw
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -50,7 +51,8 @@ import {
   serverTimestamp,
   where,
   writeBatch,
-  getDoc
+  getDoc,
+  getDocs
 } from 'firebase/firestore';
 
 // --- Firebase Initialization ---
@@ -725,7 +727,7 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
                                         <input 
                                             required 
                                             type="number" 
-                                            min="1"
+                                            min="1" 
                                             max="100"
                                             disabled={isEditing} // Prevent changing structure during edit
                                             title={isEditing ? "Structure changes disabled in edit mode" : ""}
@@ -1598,7 +1600,100 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
 };
 
 // 6. Reports View
-const ReportsView = ({ rooms, issues }) => {
+const ReportsView = ({ rooms, issues, userId }) => {
+  const [cleaningFilter, setCleaningFilter] = useState({
+      start: new Date().toISOString().split('T')[0],
+      end: new Date().toISOString().split('T')[0]
+  });
+  const [cleaningLogs, setCleaningLogs] = useState([]);
+  const [loadingCleaning, setLoadingCleaning] = useState(false);
+  const [buildingFilter, setBuildingFilter] = useState('All');
+  const [sortConfig, setSortConfig] = useState({ key: 'timestamp', direction: 'desc' });
+
+  const fetchCleaningLogs = async () => {
+      setLoadingCleaning(true);
+      try {
+          const start = new Date(cleaningFilter.start);
+          start.setHours(0,0,0,0);
+          const end = new Date(cleaningFilter.end);
+          end.setHours(23,59,59,999);
+          
+          const historyRef = collection(db, getCollectionPath('history', userId));
+          const q = query(
+              historyRef, 
+              where('timestamp', '>=', start),
+              where('timestamp', '<=', end),
+              orderBy('timestamp', 'desc')
+          );
+          
+          const snapshot = await getDocs(q);
+          const logs = snapshot.docs
+              .map(doc => ({ id: doc.id, ...doc.data() }))
+              .filter(log => log.details && log.details.includes('Cleaned'));
+              
+          const enrichedLogs = logs.map(log => {
+              const room = rooms.find(r => r.id === log.roomId);
+              return {
+                  ...log,
+                  roomNumber: room ? room.number : 'Unknown',
+                  buildingName: room ? room.buildingName : 'Unknown'
+              };
+          });
+          
+          setCleaningLogs(enrichedLogs);
+      } catch (error) {
+          console.error("Error fetching cleaning logs", error);
+      } finally {
+          setLoadingCleaning(false);
+      }
+  };
+
+  const uniqueBuildings = useMemo(() => ['All', ...new Set(rooms.map(r => r.buildingName))].sort(), [rooms]);
+
+  const handleSort = (key) => {
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const processedLogs = useMemo(() => {
+      let logs = [...cleaningLogs];
+      
+      if (buildingFilter !== 'All') {
+          logs = logs.filter(l => l.buildingName === buildingFilter);
+      }
+
+      logs.sort((a, b) => {
+        let aVal = a[sortConfig.key];
+        let bVal = b[sortConfig.key];
+
+        if (sortConfig.key === 'timestamp') {
+            aVal = aVal?.toDate ? aVal.toDate().getTime() : 0;
+            bVal = bVal?.toDate ? bVal.toDate().getTime() : 0;
+        } else {
+             if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+             if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+             
+             if (sortConfig.key === 'roomNumber') {
+                 const aNum = parseInt(aVal);
+                 const bNum = parseInt(bVal);
+                 if(!isNaN(aNum) && !isNaN(bNum)) {
+                     aVal = aNum;
+                     bVal = bNum;
+                 }
+             }
+        }
+
+        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+
+      return logs;
+  }, [cleaningLogs, buildingFilter, sortConfig]);
+
   const prepareRoomsExport = () => {
     return rooms.map(r => ({
       buildingName: r.buildingName,
@@ -1622,12 +1717,23 @@ const ReportsView = ({ rooms, issues }) => {
     }));
   };
 
+  const prepareCleaningExport = () => {
+      return processedLogs.map(l => ({
+          Building: l.buildingName,
+          Room: l.roomNumber,
+          Time: l.timestamp?.toDate().toLocaleString()
+      }));
+  };
+
   return (
     <div className="h-full overflow-y-auto">
-      <div className="p-4 md:p-8 max-w-4xl mx-auto pb-24 md:pb-8">
-        <h2 className="text-2xl md:text-3xl font-bold text-slate-800 mb-2">Reports</h2>
-        <p className="text-slate-500 mb-6 md:mb-8">Download facility data for analysis.</p>
+      <div className="p-4 md:p-8 max-w-4xl mx-auto pb-24 md:pb-8 space-y-6">
+        <div>
+            <h2 className="text-2xl md:text-3xl font-bold text-slate-800 mb-2">Reports</h2>
+            <p className="text-slate-500">Download facility data for analysis.</p>
+        </div>
 
+        {/* Standard Reports */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
             <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center mb-4">
@@ -1661,6 +1767,119 @@ const ReportsView = ({ rooms, issues }) => {
             </button>
           </div>
         </div>
+
+        {/* Cleaning Activity Report Section */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-green-100 text-green-600 rounded-lg flex items-center justify-center">
+                    <History size={20} />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800">Cleaning Activity Log</h3>
+            </div>
+            
+            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-6">
+                <div className="flex flex-col gap-4">
+                    <div className="flex flex-col md:flex-row gap-4 items-end">
+                        <div className="flex-1 w-full">
+                            <label className="block text-xs font-bold text-slate-500 mb-1">From Date</label>
+                            <input 
+                                type="date" 
+                                value={cleaningFilter.start}
+                                onChange={(e) => setCleaningFilter({...cleaningFilter, start: e.target.value})}
+                                className="w-full p-2 border rounded-lg text-sm bg-white"
+                            />
+                        </div>
+                        <div className="flex-1 w-full">
+                            <label className="block text-xs font-bold text-slate-500 mb-1">To Date</label>
+                            <input 
+                                type="date" 
+                                value={cleaningFilter.end}
+                                onChange={(e) => setCleaningFilter({...cleaningFilter, end: e.target.value})}
+                                className="w-full p-2 border rounded-lg text-sm bg-white"
+                            />
+                        </div>
+                        <button 
+                            onClick={fetchCleaningLogs}
+                            disabled={loadingCleaning}
+                            className="w-full md:w-auto px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                            {loadingCleaning ? <RefreshCw size={18} className="animate-spin" /> : 'Generate Report'}
+                        </button>
+                    </div>
+
+                    {cleaningLogs.length > 0 && (
+                        <div className="w-full">
+                             <label className="block text-xs font-bold text-slate-500 mb-1">Filter by Building</label>
+                             <select 
+                                value={buildingFilter}
+                                onChange={(e) => setBuildingFilter(e.target.value)}
+                                className="w-full p-2 border rounded-lg text-sm bg-white"
+                             >
+                                 {uniqueBuildings.map(b => (
+                                     <option key={b} value={b}>{b}</option>
+                                 ))}
+                             </select>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {cleaningLogs.length > 0 && (
+                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="flex justify-between items-center border-b border-slate-100 pb-2 mb-2">
+                        <div className="text-sm font-bold text-slate-700">Found {processedLogs.length} records</div>
+                        <button 
+                            onClick={() => downloadCSV(prepareCleaningExport(), `cleaning_report_${cleaningFilter.start}_to_${cleaningFilter.end}.csv`)}
+                            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-slate-600 font-medium hover:bg-slate-50 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm text-sm"
+                        >
+                            <Download size={16} /> Export Data
+                        </button>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto border rounded-lg">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-slate-50 text-slate-600 font-medium sticky top-0">
+                                <tr>
+                                    <th 
+                                        className="p-3 cursor-pointer hover:bg-slate-100"
+                                        onClick={() => handleSort('buildingName')}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Building {sortConfig.key === 'buildingName' && <ArrowUpDown size={14} />}
+                                        </div>
+                                    </th>
+                                    <th 
+                                        className="p-3 cursor-pointer hover:bg-slate-100"
+                                        onClick={() => handleSort('roomNumber')}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Room {sortConfig.key === 'roomNumber' && <ArrowUpDown size={14} />}
+                                        </div>
+                                    </th>
+                                    <th 
+                                        className="p-3 cursor-pointer hover:bg-slate-100"
+                                        onClick={() => handleSort('timestamp')}
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            Time {sortConfig.key === 'timestamp' && <ArrowUpDown size={14} />}
+                                        </div>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                                {processedLogs.map(log => (
+                                    <tr key={log.id} className="hover:bg-slate-50">
+                                        <td className="p-3 text-slate-500">{log.buildingName || '-'}</td>
+                                        <td className="p-3 font-bold text-slate-700">{log.roomNumber}</td>
+                                        <td className="p-3 text-slate-500">{log.timestamp?.toDate().toLocaleString()}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </div>
+
       </div>
     </div>
   );
@@ -1809,7 +2028,7 @@ const MainApp = ({ user, username, onLogout }) => {
                 />
                 )}
 
-                {activeView === 'reports' && <ReportsView rooms={rooms} issues={issues} />}
+                {activeView === 'reports' && <ReportsView rooms={rooms} issues={issues} userId={username} />}
 
                 <MobileNav activeView={activeView} setActiveView={setActiveView} onLogout={onLogout} />
 
@@ -1843,6 +2062,12 @@ export default function FacilityManager() {
       }
     };
     initAuth();
+
+    // Check for persisted session
+    const storedUser = localStorage.getItem('campusKeep_user');
+    if (storedUser) {
+        setLoggedInUser(storedUser);
+    }
     
     return onAuthStateChanged(auth, (u) => {
       setUser(u);
@@ -1861,6 +2086,7 @@ export default function FacilityManager() {
           const userData = docSnap.data();
           if (userData.code === codeInput) {
               setLoggedInUser(usernameInput); // Success
+              localStorage.setItem('campusKeep_user', usernameInput); // Persist session
           } else {
               throw new Error("Invalid access code.");
           }
@@ -1875,6 +2101,7 @@ export default function FacilityManager() {
 
   const handleLogout = () => {
       setLoggedInUser(null);
+      localStorage.removeItem('campusKeep_user'); // Clear session
   };
 
   if (loading) return <div className="h-screen w-full flex items-center justify-center bg-slate-900 text-white">Loading CampusKeep...</div>;
