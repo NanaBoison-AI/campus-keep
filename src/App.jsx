@@ -33,7 +33,8 @@ import {
   Package,
   Zap,
   Box,
-  Warehouse
+  Warehouse,
+  Minus
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -127,7 +128,7 @@ const Sidebar = ({ activeView, setActiveView, onLogout, username }) => (
       <div className="flex items-center gap-3">
         {/* Replace this URL with your logo */}
         <img 
-          src="https://cdn-icons-png.flaticon.com/512/5526/5526465.png" 
+          src="/campuskeep_logo.png" 
           alt="Campus Logo" 
           className="w-8 h-8 object-contain bg-white/10 rounded p-1"
         />
@@ -625,8 +626,10 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
     useEffect(() => {
         if (isEditing && initialRooms.length > 0) {
             // Populate base inventory from first room if available
-            if (initialRooms[0].items) {
-                setBaseInventory(initialRooms[0].items);
+            // Prefer items from Accommodation rooms as they are standard
+            const sampleRoom = initialRooms.find(r => r.type !== 'Utility') || initialRooms[0];
+            if (sampleRoom && sampleRoom.items) {
+                setBaseInventory(sampleRoom.items);
             }
 
             // Group existing rooms by floor for the wizard
@@ -635,6 +638,9 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
             for(let f = 1; f <= draftBuilding.floors; f++) grouped[f] = [];
             
             initialRooms.forEach(room => {
+                // Only include Accommodation rooms in the bulk numbering tool to avoid messing up Utility rooms
+                if (room.type === 'Utility') return; 
+
                 if(!grouped[room.floor]) grouped[room.floor] = [];
                 grouped[room.floor].push({ ...room }); // Clone room data
             });
@@ -931,11 +937,151 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
     );
 };
 
+// --- New Component: Add Room Modal (Handles Dynamic Inventory) ---
+const AddRoomModal = ({ floor, buildingId, buildingName, onClose, setNotification, userId }) => {
+    const [roomData, setRoomData] = useState({
+        number: '',
+        type: 'Accommodation'
+    });
+    
+    // Inventory state for Utility rooms: array of {id, name, quantity}
+    const [utilityInventory, setUtilityInventory] = useState([
+        { id: '1', name: 'Broom', quantity: 1 }
+    ]);
+
+    const handleAddUtilityItem = () => {
+        setUtilityInventory([...utilityInventory, { id: Math.random().toString(), name: '', quantity: 1 }]);
+    };
+
+    const handleRemoveUtilityItem = (id) => {
+        setUtilityInventory(utilityInventory.filter(item => item.id !== id));
+    };
+
+    const handleUtilityItemChange = (id, field, value) => {
+        setUtilityInventory(utilityInventory.map(item => 
+            item.id === id ? { ...item, [field]: value } : item
+        ));
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            // Construct items object
+            let items = {};
+            if (roomData.type === 'Accommodation') {
+                items = { beds: 1, pillows: 1, mattress: 1 };
+            } else {
+                // Convert array to map for utility items
+                utilityInventory.forEach(item => {
+                    if(item.name.trim()) items[item.name] = parseInt(item.quantity) || 0;
+                });
+            }
+
+            await addDoc(collection(db, getCollectionPath('rooms', userId)), {
+                buildingId,
+                buildingName,
+                floor,
+                number: roomData.number,
+                type: roomData.type,
+                state: 'Not Cleaned',
+                items,
+                lastCleaned: null
+            });
+            setNotification({ type: 'success', message: 'Room added successfully' });
+            onClose();
+        } catch (e) {
+            console.error(e);
+            setNotification({ type: 'error', message: 'Failed to add room' });
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
+            <div className="bg-white rounded-2xl shadow-2xl p-6 w-96 animate-in zoom-in duration-200 max-h-[90vh] flex flex-col">
+                <h3 className="text-lg font-bold mb-4 flex-shrink-0">Add Room to Floor {floor}</h3>
+                <div className="flex-1 overflow-y-auto">
+                    <form id="add-room-form" onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Room Number / Name</label>
+                            <input 
+                                required 
+                                value={roomData.number}
+                                onChange={e => setRoomData({...roomData, number: e.target.value})}
+                                className="w-full border p-2 rounded-lg" 
+                                placeholder="e.g. 101 or Store A" 
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
+                            <select 
+                                value={roomData.type}
+                                onChange={e => setRoomData({...roomData, type: e.target.value})}
+                                className="w-full border p-2 rounded-lg bg-white"
+                            >
+                                <option value="Accommodation">Accommodation</option>
+                                <option value="Utility">Utility / Service</option>
+                            </select>
+                        </div>
+
+                        {roomData.type === 'Utility' && (
+                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                <div className="flex justify-between items-center mb-2">
+                                    <label className="text-xs font-bold text-slate-500 uppercase">Inventory</label>
+                                    <button type="button" onClick={handleAddUtilityItem} className="text-xs text-blue-600 font-bold hover:underline">+ Add Item</button>
+                                </div>
+                                <div className="space-y-2">
+                                    {utilityInventory.map((item, idx) => (
+                                        <div key={item.id} className="flex gap-2 items-center">
+                                            <input 
+                                                placeholder="Item Name" 
+                                                className="flex-1 border p-1.5 rounded text-sm"
+                                                value={item.name}
+                                                onChange={e => handleUtilityItemChange(item.id, 'name', e.target.value)}
+                                            />
+                                            <input 
+                                                type="number" 
+                                                min="0" 
+                                                className="w-16 border p-1.5 rounded text-sm text-center"
+                                                value={item.quantity}
+                                                onChange={e => handleUtilityItemChange(item.id, 'quantity', e.target.value)}
+                                            />
+                                            <button 
+                                                type="button" 
+                                                onClick={() => handleRemoveUtilityItem(item.id)}
+                                                className="text-red-400 hover:text-red-600"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
+                                    ))}
+                                    {utilityInventory.length === 0 && <p className="text-xs text-slate-400 italic text-center py-2">No items</p>}
+                                </div>
+                            </div>
+                        )}
+                    </form>
+                </div>
+                <div className="flex justify-end gap-2 mt-6 flex-shrink-0">
+                    <button type="button" onClick={onClose} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
+                    <button type="submit" form="add-room-form" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Add</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // 3. Room Manager
 const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId }) => {
   const [selectedRooms, setSelectedRooms] = useState([]);
   const [viewingRoom, setViewingRoom] = useState(null);
-  const [addingRoomFloor, setAddingRoomFloor] = useState(null); // Track which floor we are adding a room to
+  const [addingRoomFloor, setAddingRoomFloor] = useState(null); 
+
+  // Keep viewingRoom synced with real-time data
+  useEffect(() => {
+    if (viewingRoom) {
+      const updated = rooms.find(r => r.id === viewingRoom.id);
+      if (updated) setViewingRoom(updated);
+    }
+  }, [rooms, viewingRoom?.id]);
 
   // Group rooms by floor
   const roomsByFloor = useMemo(() => {
@@ -954,7 +1100,7 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
         occupied: 0,
         dirty: 0,
         ready: 0,
-        issue: 0 // This represents "Cleaned with Issue" (Yellow)
+        issue: 0 
     };
     
     rooms.forEach(room => {
@@ -966,7 +1112,6 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
         } else if (room.state === 'Not Cleaned') {
             counts.dirty++;
         } else {
-            // State is Cleaned
             const hasIssue = issues.some(i => i.roomId === room.id && i.status !== 'Fixed');
             if (hasIssue) counts.issue++;
             else counts.ready++;
@@ -976,7 +1121,6 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
   }, [rooms, issues]);
 
   const getRoomColor = (room) => {
-    // Distinct style for Utility Rooms
     const isUtility = room.type === 'Utility';
     const baseStyle = isUtility ? 'border-dashed border-2' : 'border-2';
 
@@ -992,7 +1136,6 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
 
   const getRoomIcon = (room) => {
       if (room.type === 'Utility') return <Box size={20} className="opacity-80" />;
-      // Default to number for Accommodation
       return <span className="text-lg md:text-xl font-bold">{room.number}</span>;
   }
 
@@ -1054,8 +1197,8 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
   return (
     <div className="flex flex-col h-full">
       <div className="flex flex-col gap-2 mb-4 pb-2 md:pb-4 border-b border-slate-200">
+        {/* ... Header and Stats ... */}
         <div className="flex items-center gap-2">
-            {/* Mobile Back Button */}
             <button onClick={onBack} className="md:hidden p-1 -ml-1 text-slate-600">
                 <ArrowLeft />
             </button>
@@ -1074,7 +1217,6 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
             </div>
         </div>
         
-        {/* Bulk Actions */}
         {selectedRooms.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-lg shadow-sm border mt-2">
             <span className="text-xs md:text-sm font-bold text-slate-700 px-1">{selectedRooms.length} selected</span>
@@ -1137,40 +1279,16 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
         )}
       </div>
 
-      {/* Add Single Room Modal */}
+      {/* REPLACED inline Add Single Room Modal with extracted component */}
       {addingRoomFloor && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
-              <div className="bg-white rounded-2xl shadow-2xl p-6 w-80 animate-in zoom-in duration-200">
-                  <h3 className="text-lg font-bold mb-4">Add Room to Floor {addingRoomFloor}</h3>
-                  <form onSubmit={(e) => {
-                      e.preventDefault();
-                      const fd = new FormData(e.target);
-                      handleAddSingleRoom({
-                          floor: addingRoomFloor,
-                          number: fd.get('number'),
-                          type: fd.get('type')
-                      });
-                  }}>
-                      <div className="space-y-4">
-                          <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">Room Number / Name</label>
-                              <input name="number" required className="w-full border p-2 rounded-lg" placeholder="e.g. 101 or Store A" />
-                          </div>
-                          <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
-                              <select name="type" className="w-full border p-2 rounded-lg bg-white">
-                                  <option value="Accommodation">Accommodation</option>
-                                  <option value="Utility">Utility / Service</option>
-                              </select>
-                          </div>
-                      </div>
-                      <div className="flex justify-end gap-2 mt-6">
-                          <button type="button" onClick={() => setAddingRoomFloor(null)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
-                          <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Add</button>
-                      </div>
-                  </form>
-              </div>
-          </div>
+          <AddRoomModal 
+              floor={addingRoomFloor}
+              buildingId={building.id}
+              buildingName={building.name}
+              userId={userId}
+              onClose={() => setAddingRoomFloor(null)}
+              setNotification={setNotification}
+          />
       )}
 
       {viewingRoom && (
@@ -1186,339 +1304,25 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
   );
 };
 
-// 4. Issues Dashboard
-const IssuesView = ({ rooms, issues, setNotification, userId }) => {
-  const categories = ['Plumbing', 'Electrical', 'Carpentry', 'HVAC', 'General'];
-  const [categoryFilter, setCategoryFilter] = useState('All');
-  const [statusFilter, setStatusFilter] = useState('All');
-  const [sortConfig, setSortConfig] = useState({ key: 'reportedAt', direction: 'desc' });
-
-  // Default Date Filter: Last 7 Days
-  const [dateFilter, setDateFilter] = useState(() => {
-    const end = new Date();
-    const start = new Date();
-    start.setDate(end.getDate() - 7);
-    return {
-      start: start.toISOString().split('T')[0],
-      end: end.toISOString().split('T')[0]
-    };
-  });
-
-  const issuesInDateRange = useMemo(() => {
-    return issues.filter(i => {
-        if (!i.reportedAt) return false;
-        const issueDate = i.reportedAt.toDate();
-        const start = new Date(dateFilter.start);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(dateFilter.end);
-        end.setHours(23, 59, 59, 999);
-        return issueDate >= start && issueDate <= end;
-    });
-  }, [issues, dateFilter]);
-
-  const stats = useMemo(() => {
-    const total = issuesInDateRange.length;
-    const open = issuesInDateRange.filter(i => i.status === 'Open').length;
-    const fixed = issuesInDateRange.filter(i => i.status === 'Fixed').length;
-    return { total, open, fixed };
-  }, [issuesInDateRange]);
-
-  const handleStatusToggle = async (issue) => {
-    const newStatus = issue.status === 'Fixed' ? 'Open' : 'Fixed';
-    try {
-      await updateDoc(doc(db, getCollectionPath('issues', userId), issue.id), {
-        status: newStatus,
-        resolvedAt: newStatus === 'Fixed' ? serverTimestamp() : null
-      });
-      setNotification({ type: 'success', message: `Issue marked as ${newStatus}`});
-    } catch(e) {
-      setNotification({ type: 'error', message: 'Failed to update issue' });
-    }
-  };
-
-  const handleSort = (key) => {
-    let direction = 'asc';
-    if (sortConfig.key === key && sortConfig.direction === 'asc') {
-      direction = 'desc';
-    }
-    setSortConfig({ key, direction });
-  };
-
-  const filteredIssues = issuesInDateRange.filter(i => {
-    const matchesCategory = categoryFilter === 'All' || i.category === categoryFilter;
-    const matchesStatus = statusFilter === 'All' || i.status === statusFilter;
-    return matchesCategory && matchesStatus;
-  });
-
-  const sortedIssues = useMemo(() => {
-    if (!filteredIssues) return [];
-    // Enriched issues with floor data
-    const enrichedIssues = filteredIssues.map(issue => {
-        const room = rooms.find(r => r.id === issue.roomId);
-        return {
-            ...issue,
-            floor: room ? room.floor : '-'
-        };
-    });
-
-    const sorted = [...enrichedIssues];
-    sorted.sort((a, b) => {
-      let aVal = a[sortConfig.key];
-      let bVal = b[sortConfig.key];
-
-      // Handle Timestamp objects
-      if (aVal?.toDate) aVal = aVal.toDate();
-      if (bVal?.toDate) bVal = bVal.toDate();
-      
-      // Handle strings (case insensitive)
-      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
-      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
-
-      // Handle nulls
-      if (aVal === null || aVal === undefined) return 1;
-      if (bVal === null || bVal === undefined) return -1;
-
-      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return sorted;
-  }, [filteredIssues, rooms, sortConfig]);
-
-  const handleExport = () => {
-    const exportData = sortedIssues.map(i => ({
-      Floor: i.floor,
-      Room: i.roomNumber,
-      Category: i.category,
-      Description: i.description,
-      Reported: i.reportedAt ? i.reportedAt.toDate().toLocaleString() : '',
-      Resolved: i.resolvedAt ? i.resolvedAt.toDate().toLocaleString() : '',
-      Status: i.status
-    }));
-    downloadCSV(exportData, `issues_list_${new Date().toISOString().split('T')[0]}.csv`);
-  };
-
-  return (
-    <div className="p-4 md:p-6 h-full flex flex-col pb-24 md:pb-6">
-       <div className="flex flex-col gap-6">
-           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-              <div className="flex items-center gap-3">
-                <h2 className="text-2xl font-bold text-slate-800">Issues Tracker</h2>
-                <button 
-                    onClick={handleExport}
-                    className="p-2 bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm"
-                    title="Export current list"
-                >
-                    <Download size={20} />
-                </button>
-              </div>
-              
-              <div className="flex flex-col gap-3 w-full md:w-auto">
-                <div className="flex flex-col md:flex-row gap-2">
-                    {/* Date Filters */}
-                    <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200">
-                        <div className="flex items-center gap-1 px-2">
-                            <Calendar size={14} className="text-slate-400"/>
-                            <input 
-                                type="date" 
-                                value={dateFilter.start}
-                                onChange={(e) => setDateFilter(prev => ({...prev, start: e.target.value}))}
-                                className="text-xs font-medium text-slate-600 outline-none bg-transparent"
-                            />
-                        </div>
-                        <span className="text-slate-300">-</span>
-                        <div className="flex items-center gap-1 px-2">
-                            <input 
-                                type="date" 
-                                value={dateFilter.end}
-                                onChange={(e) => setDateFilter(prev => ({...prev, end: e.target.value}))}
-                                className="text-xs font-medium text-slate-600 outline-none bg-transparent"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Status Filters */}
-                    <div className="flex gap-2 bg-white p-1 rounded-lg border border-slate-200">
-                        {['All', 'Open', 'Fixed'].map(status => (
-                            <button
-                                key={status}
-                                onClick={() => setStatusFilter(status)}
-                                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
-                                    statusFilter === status 
-                                    ? (status === 'Open' ? 'bg-red-100 text-red-700' : status === 'Fixed' ? 'bg-green-100 text-green-700' : 'bg-slate-800 text-white')
-                                    : 'text-slate-500 hover:bg-slate-50'
-                                }`}
-                            >
-                                {status}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Category Filters */}
-                <div className="flex flex-wrap gap-2">
-                    <button 
-                        onClick={() => setCategoryFilter('All')}
-                        className={`px-3 py-1 rounded-full text-xs md:text-sm font-medium transition-colors ${
-                        categoryFilter === 'All' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                        }`}
-                    >
-                        All Cats
-                    </button>
-                    {categories.map(cat => (
-                    <button 
-                        key={cat}
-                        onClick={() => setCategoryFilter(cat)}
-                        className={`px-3 py-1 rounded-full text-xs md:text-sm font-medium transition-colors ${
-                        categoryFilter === cat ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                        }`}
-                    >
-                        {cat}
-                    </button>
-                    ))}
-                </div>
-              </div>
-           </div>
-
-           {/* Stats Row */}
-           <div className="grid grid-cols-3 gap-4">
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                    <div className="text-2xl font-bold text-slate-800">{stats.total}</div>
-                    <div className="text-xs text-slate-500 font-bold uppercase">Total Issues</div>
-                </div>
-                <div className="bg-white p-4 rounded-xl border border-red-100 bg-red-50 shadow-sm">
-                    <div className="text-2xl font-bold text-red-600">{stats.open}</div>
-                    <div className="text-xs text-red-600/70 font-bold uppercase">Pending</div>
-                </div>
-                <div className="bg-white p-4 rounded-xl border border-green-100 bg-green-50 shadow-sm">
-                    <div className="text-2xl font-bold text-green-600">{stats.fixed}</div>
-                    <div className="text-xs text-green-600/70 font-bold uppercase">Resolved</div>
-                </div>
-           </div>
-       </div>
-
-       <div className="flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white md:bg-transparent md:border-0 mt-6">
-         {/* Desktop Table View */}
-         <table className="hidden md:table w-full text-left border-collapse bg-white rounded-xl shadow-sm">
-            <thead className="bg-slate-50 sticky top-0 z-10">
-              <tr>
-                {[
-                    { label: 'Floor', key: 'floor' },
-                    { label: 'Room', key: 'roomNumber' },
-                    { label: 'Category', key: 'category' },
-                    { label: 'Description', key: 'description' },
-                    { label: 'Reported', key: 'reportedAt' },
-                    { label: 'Resolved', key: 'resolvedAt' },
-                    { label: 'Status', key: 'status', align: 'right' }
-                ].map(col => (
-                    <th 
-                        key={col.key}
-                        onClick={() => handleSort(col.key)}
-                        className={`p-4 font-semibold text-slate-600 border-b cursor-pointer hover:bg-slate-100 transition-colors ${col.align === 'right' ? 'text-right' : ''}`}
-                    >
-                        <div className={`flex items-center gap-1 ${col.align === 'right' ? 'justify-end' : ''}`}>
-                            {col.label}
-                            {sortConfig.key === col.key && (
-                                <ArrowUpDown size={14} className="text-blue-500" />
-                            )}
-                        </div>
-                    </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sortedIssues.map(issue => (
-                <tr key={issue.id} className="hover:bg-slate-50 border-b last:border-0">
-                  <td className="p-4 text-slate-600 font-medium">{issue.floor}</td>
-                  <td className="p-4 font-medium text-slate-800">{issue.roomNumber}</td>
-                  <td className="p-4">
-                    <span className={`px-2 py-1 rounded text-xs font-bold ${
-                      issue.category === 'Electrical' ? 'bg-yellow-100 text-yellow-700' :
-                      issue.category === 'Plumbing' ? 'bg-blue-100 text-blue-700' :
-                      'bg-slate-100 text-slate-700'
-                    }`}>
-                      {issue.category}
-                    </span>
-                  </td>
-                  <td className="p-4 text-slate-600 max-w-xs truncate" title={issue.description}>{issue.description}</td>
-                  <td className="p-4 text-sm text-slate-500">
-                    {issue.reportedAt?.toDate().toLocaleDateString()}
-                  </td>
-                  <td className="p-4 text-sm text-slate-500">
-                    {issue.resolvedAt ? issue.resolvedAt.toDate().toLocaleDateString() : '-'}
-                  </td>
-                  <td className="p-4 text-right">
-                    <button 
-                      onClick={() => handleStatusToggle(issue)}
-                      className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                        issue.status === 'Fixed' 
-                          ? 'bg-green-100 text-green-700 hover:bg-green-200' 
-                          : 'bg-red-100 text-red-700 hover:bg-red-200'
-                      }`}
-                    >
-                      {issue.status === 'Fixed' ? <CheckCircle2 size={14}/> : <AlertTriangle size={14}/>}
-                      {issue.status}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-         </table>
-
-         {/* Mobile Card View */}
-         <div className="md:hidden space-y-3 p-3">
-            {sortedIssues.map(issue => (
-              <div key={issue.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
-                 <div className="flex justify-between items-start mb-2">
-                    <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-sm">#{issue.roomNumber}</span>
-                        <span className="text-xs text-slate-500 bg-slate-50 px-2 py-0.5 rounded">F{issue.floor}</span> {/* Added Floor Badge */}
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
-                            issue.category === 'Electrical' ? 'bg-yellow-50 text-yellow-700' :
-                            issue.category === 'Plumbing' ? 'bg-blue-50 text-blue-700' :
-                            'bg-slate-50 text-slate-600'
-                        }`}>
-                            {issue.category}
-                        </span>
-                    </div>
-                    <div className="text-right">
-                        <span className="text-[10px] text-slate-400 block">{issue.reportedAt?.toDate().toLocaleDateString()}</span>
-                        {issue.resolvedAt && (
-                            <span className="text-[10px] text-green-600 block mt-0.5">Fixed: {issue.resolvedAt.toDate().toLocaleDateString()}</span>
-                        )}
-                    </div>
-                 </div>
-                 <p className="text-sm text-slate-600 mb-3">{issue.description}</p>
-                 <button 
-                      onClick={() => handleStatusToggle(issue)}
-                      className={`w-full flex justify-center items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        issue.status === 'Fixed' 
-                          ? 'bg-green-50 text-green-700 border border-green-200' 
-                          : 'bg-red-50 text-red-700 border border-red-200'
-                      }`}
-                    >
-                      {issue.status === 'Fixed' ? <CheckCircle2 size={16}/> : <AlertTriangle size={16}/>}
-                      {issue.status}
-                </button>
-              </div>
-            ))}
-         </div>
-
-         {filteredIssues.length === 0 && (
-            <div className="p-12 text-center text-slate-400">
-            No issues found matching filters.
-            </div>
-         )}
-       </div>
-    </div>
-  );
-};
-
 // 5. Room Detail Modal (History, Inventory, Actions)
 const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [newIssue, setNewIssue] = useState({ category: 'General', description: '' });
   const [roomHistory, setRoomHistory] = useState([]);
+  
+  // Custom inventory state for Utility rooms
+  // Transform object to array for editing: { broom: 2 } -> [{name: 'broom', quantity: 2}]
+  const [customItems, setCustomItems] = useState(() => {
+      if (room.type === 'Utility' && room.items) {
+          return Object.entries(room.items).map(([name, quantity], idx) => ({
+              id: idx.toString(), name, quantity
+          }));
+      }
+      return [];
+  });
+
+  const activeIssues = issues.filter(i => i.status === 'Open');
+  const resolvedIssues = issues.filter(i => i.status === 'Fixed');
 
   // Fetch History specific to this room
   useEffect(() => {
@@ -1535,14 +1339,65 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
 
   const handleUpdateInventory = async (e) => {
     e.preventDefault();
-    const fd = new FormData(e.target);
-    const updates = {
-      'items.beds': parseInt(fd.get('beds')),
-      'items.pillows': parseInt(fd.get('pillows')),
-      'items.mattress': parseInt(fd.get('mattress'))
-    };
-    await updateDoc(doc(db, getCollectionPath('rooms', userId), room.id), updates);
-    setNotification({ type: 'success', message: 'Inventory updated' });
+    try {
+        const batch = writeBatch(db);
+        const roomRef = doc(db, getCollectionPath('rooms', userId), room.id);
+        let updates = {};
+        let changesLog = [];
+
+        if (room.type === 'Utility') {
+            // Convert custom items array back to object
+            let itemsMap = {};
+            customItems.forEach(i => {
+                if (i.name.trim()) itemsMap[i.name] = parseInt(i.quantity) || 0;
+            });
+            updates = { items: itemsMap };
+
+            // Diff for history
+            const oldItems = room.items || {};
+            const allKeys = new Set([...Object.keys(itemsMap), ...Object.keys(oldItems)]);
+            
+            allKeys.forEach(key => {
+                 const oldVal = oldItems[key];
+                 const newVal = itemsMap[key];
+                 if (oldVal !== newVal) {
+                     if (oldVal === undefined) changesLog.push(`Added ${key} (${newVal})`);
+                     else if (newVal === undefined) changesLog.push(`Removed ${key}`);
+                     else changesLog.push(`${key}: ${oldVal} → ${newVal}`);
+                 }
+            });
+
+        } else {
+            // Standard accom inventory
+            const fd = new FormData(e.target);
+            updates = {
+                items: {
+                    'beds': parseInt(fd.get('beds')),
+                    'pillows': parseInt(fd.get('pillows')),
+                    'mattress': parseInt(fd.get('mattress'))
+                }
+            };
+        }
+
+        batch.update(roomRef, updates);
+
+        // Add history log for Utility rooms if there are changes
+        if (room.type === 'Utility' && changesLog.length > 0) {
+            const historyRef = doc(collection(db, getCollectionPath('history', userId)));
+            batch.set(historyRef, {
+                roomId: room.id,
+                type: 'INVENTORY_UPDATE',
+                details: `Inventory: ${changesLog.join(', ')}`,
+                timestamp: serverTimestamp()
+            });
+        }
+        
+        await batch.commit();
+        setNotification({ type: 'success', message: 'Inventory updated' });
+    } catch (e) {
+        console.error(e);
+        setNotification({ type: 'error', message: 'Failed to update inventory' });
+    }
   };
 
   const handleReportIssue = async (e) => {
@@ -1636,30 +1491,79 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
         <div className="p-4 md:p-6 overflow-y-auto flex-1 pb-10">
           {activeTab === 'overview' && (
             <div className="space-y-6">
-              {/* Inventory Section - Only show for Accommodation */}
-              {room.type !== 'Utility' && (
-                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                    <h4 className="font-bold text-slate-700 mb-3 flex items-center gap-2">
-                      <Bed size={18} /> Base Items Inventory
+              {/* Inventory Section */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div className="flex justify-between items-center mb-3">
+                    <h4 className="font-bold text-slate-700 flex items-center gap-2">
+                        {room.type === 'Utility' ? <Package size={18} /> : <Bed size={18} />} 
+                        {room.type === 'Utility' ? 'Supplies & Inventory' : 'Base Items Inventory'}
                     </h4>
-                    <form onSubmit={handleUpdateInventory} className="grid grid-cols-3 gap-4">
-                      {['beds', 'pillows', 'mattress'].map(item => (
-                        <div key={item}>
-                          <label className="block text-xs uppercase text-slate-500 font-bold mb-1">{item}</label>
-                          <input 
-                            name={item}
-                            type="number"
-                            defaultValue={room.items?.[item] || 0}
-                            className="w-full border rounded p-2 text-center font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
-                          />
+                </div>
+                
+                <form onSubmit={handleUpdateInventory}>
+                    {room.type === 'Utility' ? (
+                        // Dynamic List for Utility
+                        <div className="space-y-3">
+                            {customItems.map((item, idx) => (
+                                <div key={idx} className="flex gap-2 items-center">
+                                    <input 
+                                        placeholder="Item Name" 
+                                        className="flex-1 border p-2 rounded text-sm"
+                                        value={item.name}
+                                        onChange={e => {
+                                            const newItems = [...customItems];
+                                            newItems[idx].name = e.target.value;
+                                            setCustomItems(newItems);
+                                        }}
+                                    />
+                                    <input 
+                                        type="number" 
+                                        className="w-16 border p-2 rounded text-sm text-center"
+                                        value={item.quantity}
+                                        onChange={e => {
+                                            const newItems = [...customItems];
+                                            newItems[idx].quantity = e.target.value;
+                                            setCustomItems(newItems);
+                                        }}
+                                    />
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setCustomItems(customItems.filter((_, i) => i !== idx))}
+                                        className="text-red-400 hover:text-red-600"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                            ))}
+                            <button 
+                                type="button" 
+                                onClick={() => setCustomItems([...customItems, {name: '', quantity: 1}])}
+                                className="text-xs text-blue-600 font-bold hover:underline flex items-center gap-1 mt-2"
+                            >
+                                <Plus size={14} /> Add Item row
+                            </button>
                         </div>
-                      ))}
-                      <div className="col-span-3 text-right">
-                        <button type="submit" className="text-sm text-blue-600 hover:underline font-medium">Update Inventory</button>
-                      </div>
-                    </form>
-                  </div>
-              )}
+                    ) : (
+                        // Fixed List for Accommodation
+                        <div className="grid grid-cols-3 gap-4">
+                            {['beds', 'pillows', 'mattress'].map(item => (
+                                <div key={item}>
+                                <label className="block text-xs uppercase text-slate-500 font-bold mb-1">{item}</label>
+                                <input 
+                                    name={item}
+                                    type="number"
+                                    defaultValue={room.items?.[item] || 0}
+                                    className="w-full border rounded p-2 text-center font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                                />
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    <div className="text-right mt-4">
+                        <button type="submit" className="text-sm text-blue-600 hover:underline font-medium">Save Inventory Changes</button>
+                    </div>
+                </form>
+              </div>
 
               {/* State Controls */}
               <div className="grid grid-cols-2 gap-3">
@@ -1676,7 +1580,6 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
                     Mark Not Cleaned
                  </button>
                  
-                 {/* Only show Occupied toggle for Accommodation rooms usually, but utility might need it too? Let's keep it but label appropriately */}
                  <button 
                     onClick={() => handleStateUpdate(room.state === 'Occupied' ? 'Not Cleaned' : 'Occupied')}
                     className={`col-span-2 p-3 rounded-xl font-medium border text-center transition-colors ${
@@ -1690,7 +1593,8 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
               </div>
             </div>
           )}
-
+          
+          {/* ... Issues and History tabs ... */}
           {activeTab === 'issues' && (
             <div className="space-y-6">
                <div className="bg-white border rounded-xl p-4 shadow-sm">
@@ -1701,7 +1605,7 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
                       value={newIssue.category}
                       onChange={e => setNewIssue({...newIssue, category: e.target.value})}
                     >
-                      {['Plumbing', 'Electrical', 'Carpentry', 'HVAC', 'General'].map(c => <option key={c}>{c}</option>)}
+                      {['Plumbing', 'Electrical', 'Carpentry', 'AC', 'General'].map(c => <option key={c}>{c}</option>)}
                     </select>
                     <textarea 
                       placeholder="Describe the problem..."
@@ -1715,18 +1619,21 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
                </div>
 
                <div>
-                 <h4 className="font-bold text-slate-700 mb-3">Active Issues</h4>
-                 {issues.length === 0 ? (
-                   <div className="text-center py-8 text-slate-400 bg-slate-50 rounded-lg">No issues reported</div>
+                 <h4 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                    <AlertTriangle size={16} className="text-red-500"/> Active Issues
+                 </h4>
+                 {activeIssues.length === 0 ? (
+                   <div className="text-center py-6 text-slate-400 bg-slate-50 rounded-lg text-sm border border-dashed">No active issues</div>
                  ) : (
                    <div className="space-y-2">
-                     {issues.map(i => (
-                       <div key={i.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border">
+                     {activeIssues.map(i => (
+                       <div key={i.id} className="flex justify-between items-start p-3 bg-red-50 rounded-lg border border-red-100">
                           <div>
                             <div className="font-bold text-sm text-slate-800">{i.category}</div>
                             <div className="text-sm text-slate-600">{i.description}</div>
+                            <div className="text-xs text-slate-400 mt-1">{i.reportedAt?.toDate().toLocaleDateString()}</div>
                           </div>
-                          <span className={`text-xs px-2 py-1 rounded font-bold ${i.status === 'Fixed' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                          <span className="text-xs px-2 py-1 rounded font-bold bg-red-200 text-red-700">
                             {i.status}
                           </span>
                        </div>
@@ -1734,6 +1641,28 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
                    </div>
                  )}
                </div>
+
+               {resolvedIssues.length > 0 && (
+                   <div>
+                     <h4 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                        <CheckCircle2 size={16} className="text-green-500"/> Resolved History
+                     </h4>
+                     <div className="space-y-2">
+                       {resolvedIssues.map(i => (
+                         <div key={i.id} className="flex justify-between items-start p-3 bg-slate-50 rounded-lg border border-slate-200 opacity-75">
+                            <div>
+                              <div className="font-bold text-sm text-slate-700">{i.category}</div>
+                              <div className="text-sm text-slate-500">{i.description}</div>
+                              <div className="text-xs text-slate-400 mt-1">Fixed: {i.resolvedAt?.toDate().toLocaleDateString()}</div>
+                            </div>
+                            <span className="text-xs px-2 py-1 rounded font-bold bg-green-100 text-green-700">
+                              {i.status}
+                            </span>
+                         </div>
+                       ))}
+                     </div>
+                   </div>
+               )}
             </div>
           )}
 
