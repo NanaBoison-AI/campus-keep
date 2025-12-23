@@ -498,7 +498,7 @@ const BuildingsView = ({ buildings, rooms, issues, setNotification, userId }) =>
 
       <div className="flex flex-col md:flex-row flex-1 gap-6 overflow-hidden">
         {/* List of Buildings - Hidden on mobile if building selected */}
-        <div className={`w-full md:w-1/3 overflow-y-auto pr-2 space-y-3 ${selectedBuilding ? 'hidden md:block' : 'block'}`}>
+        <div className={`w-full md:w-64 lg:w-72 flex-shrink-0 overflow-y-auto pr-2 space-y-3 ${selectedBuilding ? 'hidden md:block' : 'block'}`}>
           {buildings.map(b => (
             <div 
               key={b.id} 
@@ -546,7 +546,7 @@ const BuildingsView = ({ buildings, rooms, issues, setNotification, userId }) =>
         </div>
 
         {/* Room Grid View - Full screen on mobile if building selected */}
-        <div className={`w-full md:w-2/3 bg-slate-50 md:rounded-2xl md:border border-slate-200 p-2 md:p-6 overflow-hidden flex flex-col ${selectedBuilding ? 'block flex-1' : 'hidden md:flex'}`}>
+        <div className={`flex-1 min-w-0 bg-slate-50 md:rounded-2xl md:border border-slate-200 p-2 md:p-6 overflow-hidden flex flex-col ${selectedBuilding ? 'block flex-1' : 'hidden md:flex'}`}>
           {selectedBuilding ? (
             selectedBuilding.type === 'Accommodation' ? (
               <RoomManager 
@@ -592,7 +592,7 @@ const BuildingsView = ({ buildings, rooms, issues, setNotification, userId }) =>
         />
       )}
     </div>
-  );
+  )
 };
 
 // --- Config Wizard Component (Handles Add & Edit) ---
@@ -1136,7 +1136,7 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
 
   const getRoomIcon = (room) => {
       if (room.type === 'Utility') return <Box size={20} className="opacity-80" />;
-      return <span className="text-lg md:text-xl font-bold">{room.number}</span>;
+      return <span className="text-lg md:text-lg font-bold">{room.number}</span>;
   }
 
   const toggleSelectRoom = (roomId) => {
@@ -1243,7 +1243,7 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
                         <Plus size={14} /> Add Room
                     </button>
                 </div>
-                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 md:gap-3">
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 gap-2 md:gap-3">
                 {roomsByFloor[floor].map(room => (
                     <div 
                     key={room.id}
