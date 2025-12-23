@@ -29,7 +29,11 @@ import {
   ArrowUpDown,
   PieChart,
   BarChart3,
-  RefreshCw
+  RefreshCw,
+  Package,
+  Zap,
+  Box,
+  Warehouse
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -123,7 +127,7 @@ const Sidebar = ({ activeView, setActiveView, onLogout, username }) => (
       <div className="flex items-center gap-3">
         {/* Replace this URL with your logo */}
         <img 
-          src="/campuskeep_logo.png" 
+          src="https://cdn-icons-png.flaticon.com/512/5526/5526465.png" 
           alt="Campus Logo" 
           className="w-8 h-8 object-contain bg-white/10 rounded p-1"
         />
@@ -243,7 +247,8 @@ const DashboardView = ({ buildings, rooms, issues }) => {
   const stats = useMemo(() => {
     const s = {
       facilities: buildings.length,
-      rooms: rooms.length,
+      rooms: 0,
+      utilityRooms: 0,
       roomsByState: { 'Cleaned': 0, 'Not Cleaned': 0, 'Occupied': 0 },
       issuesByCategory: {},
       issuesOpen: 0,
@@ -251,6 +256,16 @@ const DashboardView = ({ buildings, rooms, issues }) => {
     };
 
     rooms.forEach(r => {
+      // Split count by type
+      if (r.type === 'Utility') {
+          s.utilityRooms++;
+      } else {
+          s.rooms++; // Accommodation
+      }
+
+      // Track state for all rooms (Cleanliness applies to both)
+      // For Occupied, we might only care about Accommodation, but if a utility room is flagged Occupied (in use), we count it here for the chart
+      // but we will separate the top card count.
       if (s.roomsByState[r.state] !== undefined) s.roomsByState[r.state]++;
       else s.roomsByState[r.state] = (s.roomsByState[r.state] || 0) + 1; 
     });
@@ -280,8 +295,11 @@ const DashboardView = ({ buildings, rooms, issues }) => {
             <div className="text-xs text-slate-500 uppercase font-bold mt-1">Facilities</div>
           </div>
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-            <div className="text-3xl font-bold text-slate-800">{stats.rooms}</div>
-            <div className="text-xs text-slate-500 uppercase font-bold mt-1">Total Rooms</div>
+            <div className="flex items-baseline gap-1">
+                <span className="text-3xl font-bold text-slate-800">{stats.rooms}</span>
+                <span className="text-sm font-semibold text-slate-400">+{stats.utilityRooms}</span>
+            </div>
+            <div className="text-xs text-slate-500 uppercase font-bold mt-1">Units + Utility</div>
           </div>
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
             <div className="text-3xl font-bold text-orange-600">{stats.issuesOpen}</div>
@@ -371,6 +389,7 @@ const BuildingsView = ({ buildings, rooms, issues, setNotification, userId }) =>
             name: data.name,
             type: data.type,
             floors: data.floors,
+            roomsPerFloor: data.roomsPerFloor, // Save this for future edits
             createdAt: serverTimestamp()
         });
 
@@ -386,8 +405,9 @@ const BuildingsView = ({ buildings, rooms, issues, setNotification, userId }) =>
                         buildingName: data.name,
                         floor: parseInt(floorNum),
                         number: room.number, 
+                        type: 'Accommodation', // Default type for auto-generated
                         state: 'Not Cleaned',
-                        items: { beds: 2, pillows: 2, mattress: 2 },
+                        items: data.baseInventory || { beds: 2, pillows: 2, mattress: 2 },
                         lastCleaned: null
                     });
                 });
@@ -423,10 +443,18 @@ const BuildingsView = ({ buildings, rooms, issues, setNotification, userId }) =>
                     if (room.id && !room.id.startsWith('temp_')) {
                         // Existing room - update its number and sync building name
                         const roomRef = doc(db, getCollectionPath('rooms', userId), room.id);
-                        batch.update(roomRef, { 
+                        
+                        const updates = { 
                             number: room.number,
-                            buildingName: data.name // Keep building name in sync
-                        });
+                            buildingName: data.name 
+                        };
+
+                        // Update inventory if baseInventory was changed/provided
+                        if (data.baseInventory) {
+                            updates.items = data.baseInventory;
+                        }
+
+                        batch.update(roomRef, updates);
                     }
                 });
             });
@@ -434,7 +462,6 @@ const BuildingsView = ({ buildings, rooms, issues, setNotification, userId }) =>
             await batch.commit();
         } else if (data.name !== editingBuilding.name) {
              // Fallback: If only name changed and no room data passed (e.g. non-accom), update links
-             // This part might be redundant if wizard always passes roomsData for accom, but safe for others
              const relatedRooms = rooms.filter(r => r.buildingId === data.id);
              if(relatedRooms.length > 0) {
                  const batch = writeBatch(db);
@@ -570,13 +597,25 @@ const BuildingsView = ({ buildings, rooms, issues, setNotification, userId }) =>
 // --- Config Wizard Component (Handles Add & Edit) ---
 const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialBuilding = null, initialRooms = [] }) => {
     const [step, setStep] = useState(1);
+    
+    // Calculate default rooms per floor for edit mode if missing
+    const calculateDefaultRPF = () => {
+        if (!isEditing || !initialBuilding?.floors || initialRooms.length === 0) return 10;
+        if (initialBuilding.roomsPerFloor) return initialBuilding.roomsPerFloor;
+        // Estimate if not saved previously
+        const roomsOnFirstFloor = initialRooms.filter(r => r.floor === 1).length;
+        return roomsOnFirstFloor > 0 ? roomsOnFirstFloor : 10;
+    };
+
     const [draftBuilding, setDraftBuilding] = useState({
         name: initialBuilding?.name || '',
         type: initialBuilding?.type || 'Accommodation',
         floors: initialBuilding?.floors || 1,
-        roomsPerFloor: 10,
+        roomsPerFloor: calculateDefaultRPF(),
         ...initialBuilding // Merge any other existing props (like id)
     });
+    
+    const [baseInventory, setBaseInventory] = useState({ beds: 1, pillows: 1, mattress: 1 });
     
     // Structure: { 1: [{ number: '101' }, { number: '102'}], 2: [...] }
     const [draftRooms, setDraftRooms] = useState({});
@@ -585,6 +624,11 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
 
     useEffect(() => {
         if (isEditing && initialRooms.length > 0) {
+            // Populate base inventory from first room if available
+            if (initialRooms[0].items) {
+                setBaseInventory(initialRooms[0].items);
+            }
+
             // Group existing rooms by floor for the wizard
             const grouped = {};
             // Initialize arrays for all floors defined in building
@@ -613,9 +657,6 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
     }, [isEditing, initialRooms, draftBuilding.floors]);
 
     const generateInitialDraft = () => {
-        // If editing, we already loaded rooms in useEffect, unless we changed floor count?
-        // For simplicity in this version, if editing, we assume rooms are loaded.
-        // If creating, we generate.
         if (isEditing && Object.keys(draftRooms).length > 0) return;
 
         const rooms = {};
@@ -637,8 +678,13 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
         if (draftBuilding.type !== 'Accommodation') {
             onComplete({ ...draftBuilding, roomsData: null });
         } else {
-            if (!isEditing) generateInitialDraft();
-            setStep(2);
+            // Flow: 1 -> 2 (Inventory) -> 3 (Room Config)
+            if (step === 1) {
+                if (!isEditing) generateInitialDraft();
+                setStep(2);
+            } else if (step === 2) {
+                setStep(3);
+            }
         }
     };
 
@@ -668,16 +714,16 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
 
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end md:items-center justify-center z-[70] p-4">
-            <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full md:w-[800px] flex flex-col max-h-[90vh] animate-in slide-in-from-bottom md:zoom-in duration-200">
+            <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full md:w-[800px] flex flex-col h-[85vh] md:max-h-[90vh] animate-in slide-in-from-bottom md:zoom-in duration-200">
                 
                 {/* Header */}
-                <div className="p-6 border-b flex justify-between items-center bg-slate-50 rounded-t-2xl">
+                <div className="p-6 border-b flex justify-between items-center bg-slate-50 rounded-t-2xl flex-shrink-0">
                     <div>
                         <h3 className="text-xl font-bold text-slate-800">
                             {isEditing ? 'Edit Facility' : 'New Facility Details'}
                         </h3>
                         <p className="text-sm text-slate-500">
-                            {step === 1 ? 'Basic Details' : 'Room Configuration'}
+                            {step === 1 ? 'Basic Details' : step === 2 ? 'Base Inventory' : 'Room Configuration'}
                         </p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500">
@@ -686,81 +732,114 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 overflow-hidden">
-                    {step === 1 ? (
-                        <form id="step1-form" onSubmit={handleNext} className="p-8 space-y-6">
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">Facility Name</label>
-                                <input 
-                                    required 
-                                    value={draftBuilding.name}
-                                    onChange={e => setDraftBuilding({...draftBuilding, name: e.target.value})}
-                                    className="w-full border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none" 
-                                    placeholder="e.g. Block A, Science Hall" 
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">Facility Type</label>
-                                <select 
-                                    value={draftBuilding.type}
-                                    onChange={e => setDraftBuilding({...draftBuilding, type: e.target.value})}
-                                    className="w-full border border-slate-300 rounded-lg p-3 bg-white"
-                                >
-                                    <option value="Accommodation">Accommodation (Has Rooms)</option>
-                                    <option value="TeachingHall">Teaching Hall</option>
-                                    <option value="Walkway">Walkway</option>
-                                </select>
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-6">
+                <div className="flex-1 overflow-hidden flex flex-col">
+                    {step === 1 && (
+                        <div className="p-8 overflow-y-auto">
+                            <form id="step1-form" onSubmit={handleNext} className="space-y-6">
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-2">Number of Floors</label>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Facility Name</label>
                                     <input 
                                         required 
-                                        type="number" 
-                                        min="1" 
-                                        max="50"
-                                        disabled={isEditing} // Prevent changing structure during edit for simplicity
-                                        title={isEditing ? "Structure changes disabled in edit mode" : ""}
-                                        value={draftBuilding.floors}
-                                        onChange={e => setDraftBuilding({...draftBuilding, floors: parseInt(e.target.value) || 1})}
-                                        className={`w-full border border-slate-300 rounded-lg p-3 ${isEditing ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`} 
+                                        value={draftBuilding.name}
+                                        onChange={e => setDraftBuilding({...draftBuilding, name: e.target.value})}
+                                        className="w-full border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none" 
+                                        placeholder="e.g. Block A, Science Hall" 
                                     />
                                 </div>
-                                {draftBuilding.type === 'Accommodation' && (
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Facility Type</label>
+                                    <select 
+                                        value={draftBuilding.type}
+                                        onChange={e => setDraftBuilding({...draftBuilding, type: e.target.value})}
+                                        className="w-full border border-slate-300 rounded-lg p-3 bg-white"
+                                    >
+                                        <option value="Accommodation">Accommodation (Has Rooms)</option>
+                                        <option value="TeachingHall">Teaching Hall</option>
+                                        <option value="Walkway">Walkway</option>
+                                    </select>
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-6">
                                     <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-2">Rooms per Floor</label>
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">Number of Floors</label>
                                         <input 
                                             required 
                                             type="number" 
                                             min="1" 
-                                            max="100"
-                                            disabled={isEditing} // Prevent changing structure during edit
+                                            max="50"
+                                            disabled={isEditing} 
                                             title={isEditing ? "Structure changes disabled in edit mode" : ""}
-                                            value={draftBuilding.roomsPerFloor}
-                                            onChange={e => setDraftBuilding({...draftBuilding, roomsPerFloor: parseInt(e.target.value) || 1})}
+                                            value={draftBuilding.floors}
+                                            onChange={e => setDraftBuilding({...draftBuilding, floors: parseInt(e.target.value) || 1})}
                                             className={`w-full border border-slate-300 rounded-lg p-3 ${isEditing ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`} 
                                         />
                                     </div>
+                                    {draftBuilding.type === 'Accommodation' && (
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-2">Rooms per Floor</label>
+                                            <input 
+                                                required 
+                                                type="number" 
+                                                min="1" 
+                                                max="100"
+                                                disabled={isEditing} 
+                                                title={isEditing ? "Structure changes disabled in edit mode" : ""}
+                                                value={draftBuilding.roomsPerFloor}
+                                                onChange={e => setDraftBuilding({...draftBuilding, roomsPerFloor: parseInt(e.target.value) || 1})}
+                                                className={`w-full border border-slate-300 rounded-lg p-3 ${isEditing ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`} 
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                                {isEditing && (
+                                    <p className="text-xs text-orange-500 bg-orange-50 p-2 rounded">
+                                        Note: Changing floors or room counts is disabled to protect existing room data. You can rename rooms in the next step.
+                                    </p>
                                 )}
-                            </div>
-                            {isEditing && (
-                                <p className="text-xs text-orange-500 bg-orange-50 p-2 rounded">
-                                    Note: Changing floors or room counts is disabled to protect existing room data. You can rename rooms in the next step.
-                                </p>
-                            )}
-                        </form>
-                    ) : (
-                        <div className="flex h-full">
+                            </form>
+                        </div>
+                    )}
+
+                    {step === 2 && (
+                        <div className="p-8 overflow-y-auto">
+                            <h4 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                                <Package className="text-blue-500" /> Default Room Inventory
+                            </h4>
+                            <p className="text-sm text-slate-500 mb-6">Set the default items for each room. You can change this later for individual rooms.</p>
+                            
+                            <form id="step2-form" onSubmit={handleNext} className="space-y-6 max-w-md">
+                                <div className="grid grid-cols-1 gap-4">
+                                    {['beds', 'pillows', 'mattress'].map(item => (
+                                        <div key={item} className="flex items-center justify-between p-4 border rounded-lg bg-slate-50">
+                                            <label className="capitalize font-bold text-slate-700">{item}</label>
+                                            <div className="flex items-center gap-2">
+                                                <button type="button" onClick={() => setBaseInventory(p => ({...p, [item]: Math.max(0, p[item]-1)}))} className="w-8 h-8 rounded-full bg-white border flex items-center justify-center hover:bg-slate-100">-</button>
+                                                <input 
+                                                    type="number"
+                                                    min="0"
+                                                    value={baseInventory[item]}
+                                                    onChange={e => setBaseInventory(p => ({...p, [item]: parseInt(e.target.value) || 0}))}
+                                                    className="w-16 text-center p-1 border rounded bg-white font-bold"
+                                                />
+                                                <button type="button" onClick={() => setBaseInventory(p => ({...p, [item]: p[item]+1}))} className="w-8 h-8 rounded-full bg-white border flex items-center justify-center hover:bg-slate-100">+</button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </form>
+                        </div>
+                    )}
+                    
+                    {step === 3 && (
+                        <div className="flex flex-1 overflow-hidden h-full">
                             {/* Left Col: Floors List */}
-                            <div className="w-1/3 border-r border-slate-200 bg-slate-50 overflow-y-auto p-4 space-y-2">
+                            <div className="w-1/3 border-r border-slate-200 bg-slate-50 overflow-y-auto p-4 space-y-2 flex-shrink-0">
                                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Select Floor</h4>
                                 {Object.keys(draftRooms).map(f => (
                                     <button
                                         key={f}
                                         onClick={() => {
                                             setActiveFloor(f);
-                                            // Pre-fill range start with first room of this floor for convenience
                                             setRangeStart(draftRooms[f][0]?.number || '');
                                         }}
                                         className={`w-full text-left p-3 rounded-lg flex justify-between items-center transition-all ${
@@ -775,10 +854,10 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
                                 ))}
                             </div>
 
-                            {/* Right Col: Room Editor */}
-                            <div className="w-2/3 flex flex-col h-full">
+                            {/* Right Col: Room Editor - Scroll Fixed */}
+                            <div className="w-2/3 flex flex-col h-full overflow-hidden">
                                 {/* Auto-Fill Toolbar */}
-                                <div className="p-4 border-b border-slate-200 bg-white flex items-end gap-3">
+                                <div className="p-4 border-b border-slate-200 bg-white flex items-end gap-3 flex-shrink-0">
                                     <div className="flex-1">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Start Sequence (Floor {activeFloor})</label>
                                         <div className="relative">
@@ -800,9 +879,9 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
                                     </button>
                                 </div>
 
-                                {/* Room Grid Inputs */}
+                                {/* Room Grid Inputs - Scrollable Area */}
                                 <div className="p-6 overflow-y-auto bg-slate-50/50 flex-1">
-                                    <div className="grid grid-cols-3 gap-4">
+                                    <div className="grid grid-cols-3 gap-4 pb-10">
                                         {draftRooms[activeFloor]?.map((room, idx) => (
                                             <div key={room.id || idx} className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
                                                 <label className="block text-[10px] font-bold text-slate-400 mb-1">Room {idx + 1}</label>
@@ -821,10 +900,10 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
                 </div>
 
                 {/* Footer Buttons */}
-                <div className="p-6 border-t bg-white flex justify-end gap-3 rounded-b-2xl">
-                    {step === 2 && (
+                <div className="p-6 border-t bg-white flex justify-end gap-3 rounded-b-2xl flex-shrink-0">
+                    {step > 1 && (
                         <button 
-                            onClick={() => setStep(1)}
+                            onClick={() => setStep(s => s - 1)}
                             className="px-6 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded-lg flex items-center gap-2"
                         >
                             <ChevronLeft size={18} /> Back
@@ -832,16 +911,17 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
                     )}
                     <button 
                         onClick={(e) => {
-                            if (step === 1) {
-                                // Trigger form submit via ref or handle manually
+                            if (step === 1 && draftBuilding.type === 'Accommodation') {
                                 document.getElementById('step1-form').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                            } else if (step === 2) {
+                                document.getElementById('step2-form').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
                             } else {
-                                onComplete({ ...draftBuilding, roomsData: draftRooms });
+                                onComplete({ ...draftBuilding, roomsData: draftRooms, baseInventory });
                             }
                         }}
                         className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-lg shadow-blue-200 flex items-center gap-2"
                     >
-                        {step === 1 && draftBuilding.type === 'Accommodation' ? (
+                        {step < 3 && draftBuilding.type === 'Accommodation' ? (
                              <>Next Step <ChevronRight size={18} /></>
                         ) : (isEditing ? 'Save Changes' : 'Create Facility')}
                     </button>
@@ -855,6 +935,7 @@ const FacilityConfigWizard = ({ onClose, onComplete, isEditing = false, initialB
 const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId }) => {
   const [selectedRooms, setSelectedRooms] = useState([]);
   const [viewingRoom, setViewingRoom] = useState(null);
+  const [addingRoomFloor, setAddingRoomFloor] = useState(null); // Track which floor we are adding a room to
 
   // Group rooms by floor
   const roomsByFloor = useMemo(() => {
@@ -867,7 +948,7 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
     return grouped;
   }, [rooms]);
 
-  // NEW: Calculate Stats based on visual state
+  // NEW: Calculate Stats based on visual state and TYPE
   const stats = useMemo(() => {
     let counts = {
         occupied: 0,
@@ -877,7 +958,10 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
     };
     
     rooms.forEach(room => {
-        if (room.state === 'Occupied') {
+        // Utility rooms don't count towards 'Occupied' stats usually, but they do count for cleaning/issues
+        if (room.state === 'Occupied' && room.type !== 'Utility') {
+             // Only Accommodation rooms should really be 'Occupied', but if a utility room is marked occupied (maybe storing stuff), count it?
+             // Let's count it to reflect visual state.
             counts.occupied++;
         } else if (room.state === 'Not Cleaned') {
             counts.dirty++;
@@ -892,15 +976,25 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
   }, [rooms, issues]);
 
   const getRoomColor = (room) => {
-    if (room.state === 'Occupied') return 'bg-gray-500 border-gray-600 text-white';
-    if (room.state === 'Not Cleaned') return 'bg-red-500 border-red-600 text-white';
+    // Distinct style for Utility Rooms
+    const isUtility = room.type === 'Utility';
+    const baseStyle = isUtility ? 'border-dashed border-2' : 'border-2';
+
+    if (room.state === 'Occupied') return `${baseStyle} bg-gray-500 border-gray-600 text-white`;
+    if (room.state === 'Not Cleaned') return `${baseStyle} bg-red-500 border-red-600 text-white`;
     if (room.state === 'Cleaned') {
       const roomIssues = issues.filter(i => i.roomId === room.id && i.status !== 'Fixed');
-      if (roomIssues.length > 0) return 'bg-yellow-400 border-yellow-500 text-slate-900'; 
-      return 'bg-green-500 border-green-600 text-white';
+      if (roomIssues.length > 0) return `${baseStyle} bg-yellow-400 border-yellow-500 text-slate-900`; 
+      return `${baseStyle} bg-green-500 border-green-600 text-white`;
     }
-    return 'bg-slate-200 border-slate-300 text-slate-500'; 
+    return `${baseStyle} bg-slate-200 border-slate-300 text-slate-500`; 
   };
+
+  const getRoomIcon = (room) => {
+      if (room.type === 'Utility') return <Box size={20} className="opacity-80" />;
+      // Default to number for Accommodation
+      return <span className="text-lg md:text-xl font-bold">{room.number}</span>;
+  }
 
   const toggleSelectRoom = (roomId) => {
     if (selectedRooms.includes(roomId)) {
@@ -936,6 +1030,25 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
     } catch (e) {
       setNotification({ type: 'error', message: 'Update failed' });
     }
+  };
+  
+  const handleAddSingleRoom = async (data) => {
+      try {
+          await addDoc(collection(db, getCollectionPath('rooms', userId)), {
+              buildingId: building.id,
+              buildingName: building.name,
+              floor: data.floor,
+              number: data.number,
+              type: data.type,
+              state: 'Not Cleaned',
+              items: data.type === 'Accommodation' ? { beds: 1, pillows: 1, mattress: 1 } : {}, // Default items
+              lastCleaned: null
+          });
+          setNotification({ type: 'success', message: 'Room added successfully' });
+          setAddingRoomFloor(null);
+      } catch (e) {
+          setNotification({ type: 'error', message: 'Failed to add room' });
+      }
   };
 
   return (
@@ -977,16 +1090,23 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
       <div className="flex-1 overflow-y-auto pb-10 px-1">
         {Object.keys(roomsByFloor).sort((a,b) => parseInt(a) - parseInt(b)).map(floor => (
             <div key={floor} className="mb-6">
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                    <span className="bg-slate-200 px-2 py-1 rounded">Floor {floor}</span>
-                    <div className="h-px bg-slate-200 flex-1"></div>
-                </h4>
+                <div className="flex justify-between items-center mb-3">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                        <span className="bg-slate-200 px-2 py-1 rounded">Floor {floor}</span>
+                    </h4>
+                    <button 
+                        onClick={() => setAddingRoomFloor(parseInt(floor))}
+                        className="text-xs flex items-center gap-1 text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition-colors"
+                    >
+                        <Plus size={14} /> Add Room
+                    </button>
+                </div>
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 md:gap-3">
                 {roomsByFloor[floor].map(room => (
                     <div 
                     key={room.id}
                     onClick={() => setViewingRoom(room)}
-                    className={`relative aspect-square rounded-lg md:rounded-xl flex flex-col items-center justify-center cursor-pointer shadow-sm hover:shadow-md transition-all border-2 ${getRoomColor(room)}`}
+                    className={`relative aspect-square rounded-lg md:rounded-xl flex flex-col items-center justify-center cursor-pointer shadow-sm hover:shadow-md transition-all ${getRoomColor(room)}`}
                     >
                     <input 
                         type="checkbox" 
@@ -995,7 +1115,11 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
                         onClick={(e) => { e.stopPropagation(); toggleSelectRoom(room.id); }}
                         onChange={() => {}} 
                     />
-                    <span className="text-lg md:text-xl font-bold">{room.number}</span>
+                    
+                    {getRoomIcon(room)}
+                    
+                    {room.type === 'Utility' && <span className="text-[10px] font-bold mt-1 max-w-[90%] truncate">{room.number}</span>}
+
                     <span className="hidden md:block text-[10px] uppercase opacity-90 mt-1 font-medium">{room.state}</span>
                     
                     <div className="absolute bottom-1 right-1 md:bottom-2 md:left-2 flex gap-1">
@@ -1012,6 +1136,42 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
             <div className="text-center py-10 text-slate-400">No rooms found in this facility.</div>
         )}
       </div>
+
+      {/* Add Single Room Modal */}
+      {addingRoomFloor && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
+              <div className="bg-white rounded-2xl shadow-2xl p-6 w-80 animate-in zoom-in duration-200">
+                  <h3 className="text-lg font-bold mb-4">Add Room to Floor {addingRoomFloor}</h3>
+                  <form onSubmit={(e) => {
+                      e.preventDefault();
+                      const fd = new FormData(e.target);
+                      handleAddSingleRoom({
+                          floor: addingRoomFloor,
+                          number: fd.get('number'),
+                          type: fd.get('type')
+                      });
+                  }}>
+                      <div className="space-y-4">
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">Room Number / Name</label>
+                              <input name="number" required className="w-full border p-2 rounded-lg" placeholder="e.g. 101 or Store A" />
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
+                              <select name="type" className="w-full border p-2 rounded-lg bg-white">
+                                  <option value="Accommodation">Accommodation</option>
+                                  <option value="Utility">Utility / Service</option>
+                              </select>
+                          </div>
+                      </div>
+                      <div className="flex justify-end gap-2 mt-6">
+                          <button type="button" onClick={() => setAddingRoomFloor(null)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
+                          <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Add</button>
+                      </div>
+                  </form>
+              </div>
+          </div>
+      )}
 
       {viewingRoom && (
          <RoomDetailModal 
@@ -1140,7 +1300,7 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
 
   return (
     <div className="p-4 md:p-6 h-full flex flex-col pb-24 md:pb-6">
-       <div className="flex flex-col gap-4 md:gap-6 flex-shrink-0">
+       <div className="flex flex-col gap-6">
            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div className="flex items-center gap-3">
                 <h2 className="text-2xl font-bold text-slate-800">Issues Tracker</h2>
@@ -1220,24 +1380,24 @@ const IssuesView = ({ rooms, issues, setNotification, userId }) => {
               </div>
            </div>
 
-           {/* Stats Row - Compact on Mobile */}
-           <div className="grid grid-cols-3 gap-2 md:gap-4">
-                <div className="bg-white p-2 md:p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col items-center md:items-start text-center md:text-left">
-                    <div className="text-xl md:text-2xl font-bold text-slate-800">{stats.total}</div>
-                    <div className="text-[10px] md:text-xs text-slate-500 font-bold uppercase truncate w-full">Total</div>
+           {/* Stats Row */}
+           <div className="grid grid-cols-3 gap-4">
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="text-2xl font-bold text-slate-800">{stats.total}</div>
+                    <div className="text-xs text-slate-500 font-bold uppercase">Total Issues</div>
                 </div>
-                <div className="bg-white p-2 md:p-4 rounded-xl border border-red-100 bg-red-50 shadow-sm flex flex-col items-center md:items-start text-center md:text-left">
-                    <div className="text-xl md:text-2xl font-bold text-red-600">{stats.open}</div>
-                    <div className="text-[10px] md:text-xs text-red-600/70 font-bold uppercase truncate w-full">Pending</div>
+                <div className="bg-white p-4 rounded-xl border border-red-100 bg-red-50 shadow-sm">
+                    <div className="text-2xl font-bold text-red-600">{stats.open}</div>
+                    <div className="text-xs text-red-600/70 font-bold uppercase">Pending</div>
                 </div>
-                <div className="bg-white p-2 md:p-4 rounded-xl border border-green-100 bg-green-50 shadow-sm flex flex-col items-center md:items-start text-center md:text-left">
-                    <div className="text-xl md:text-2xl font-bold text-green-600">{stats.fixed}</div>
-                    <div className="text-[10px] md:text-xs text-green-600/70 font-bold uppercase truncate w-full">Resolved</div>
+                <div className="bg-white p-4 rounded-xl border border-green-100 bg-green-50 shadow-sm">
+                    <div className="text-2xl font-bold text-green-600">{stats.fixed}</div>
+                    <div className="text-xs text-green-600/70 font-bold uppercase">Resolved</div>
                 </div>
            </div>
        </div>
 
-       <div className="flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white md:bg-transparent md:border-0 mt-3 md:mt-6">
+       <div className="flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white md:bg-transparent md:border-0 mt-6">
          {/* Desktop Table View */}
          <table className="hidden md:table w-full text-left border-collapse bg-white rounded-xl shadow-sm">
             <thead className="bg-slate-50 sticky top-0 z-10">
@@ -1434,17 +1594,22 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
       <div className="bg-white w-full max-w-2xl md:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col h-[85vh] md:max-h-[90vh] overflow-hidden animate-in slide-in-from-bottom duration-300">
         <div className="p-4 md:p-6 border-b flex justify-between items-center bg-slate-50">
           <div>
-            <h3 className="text-xl md:text-2xl font-bold text-slate-800">Room {room.number}</h3>
-            <div className="flex items-center gap-2 mt-1">
-                <span className={`text-xs font-bold px-2 py-1 rounded uppercase tracking-wide inline-block ${
+            <h3 className="text-xl md:text-2xl font-bold text-slate-800">
+                {room.type === 'Utility' ? <span className="flex items-center gap-2"><Box /> {room.number}</span> : `Room ${room.number}`}
+            </h3>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-700 uppercase tracking-wide">
+                    {room.type || 'Accommodation'}
+                </span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide inline-block ${
                 room.state === 'Occupied' ? 'bg-gray-200 text-gray-700' : 
                 room.state === 'Not Cleaned' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
                 }`}>
                 {room.state}
                 </span>
                 {room.lastCleaned && (
-                    <span className="text-xs text-slate-500 flex items-center gap-1">
-                        <Clock size={12} /> Last Cleaned: {room.lastCleaned?.toDate().toLocaleDateString()}
+                    <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                        <Clock size={10} /> Cleaned: {room.lastCleaned?.toDate().toLocaleDateString()}
                     </span>
                 )}
             </div>
@@ -1471,28 +1636,30 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
         <div className="p-4 md:p-6 overflow-y-auto flex-1 pb-10">
           {activeTab === 'overview' && (
             <div className="space-y-6">
-              {/* Inventory Section */}
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <h4 className="font-bold text-slate-700 mb-3 flex items-center gap-2">
-                  <Bed size={18} /> Base Items Inventory
-                </h4>
-                <form onSubmit={handleUpdateInventory} className="grid grid-cols-3 gap-4">
-                  {['beds', 'pillows', 'mattress'].map(item => (
-                    <div key={item}>
-                      <label className="block text-xs uppercase text-slate-500 font-bold mb-1">{item}</label>
-                      <input 
-                        name={item}
-                        type="number"
-                        defaultValue={room.items?.[item] || 0}
-                        className="w-full border rounded p-2 text-center font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
-                      />
-                    </div>
-                  ))}
-                  <div className="col-span-3 text-right">
-                    <button type="submit" className="text-sm text-blue-600 hover:underline font-medium">Update Inventory</button>
+              {/* Inventory Section - Only show for Accommodation */}
+              {room.type !== 'Utility' && (
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <h4 className="font-bold text-slate-700 mb-3 flex items-center gap-2">
+                      <Bed size={18} /> Base Items Inventory
+                    </h4>
+                    <form onSubmit={handleUpdateInventory} className="grid grid-cols-3 gap-4">
+                      {['beds', 'pillows', 'mattress'].map(item => (
+                        <div key={item}>
+                          <label className="block text-xs uppercase text-slate-500 font-bold mb-1">{item}</label>
+                          <input 
+                            name={item}
+                            type="number"
+                            defaultValue={room.items?.[item] || 0}
+                            className="w-full border rounded p-2 text-center font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                          />
+                        </div>
+                      ))}
+                      <div className="col-span-3 text-right">
+                        <button type="submit" className="text-sm text-blue-600 hover:underline font-medium">Update Inventory</button>
+                      </div>
+                    </form>
                   </div>
-                </form>
-              </div>
+              )}
 
               {/* State Controls */}
               <div className="grid grid-cols-2 gap-3">
@@ -1508,6 +1675,8 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
                  >
                     Mark Not Cleaned
                  </button>
+                 
+                 {/* Only show Occupied toggle for Accommodation rooms usually, but utility might need it too? Let's keep it but label appropriately */}
                  <button 
                     onClick={() => handleStateUpdate(room.state === 'Occupied' ? 'Not Cleaned' : 'Occupied')}
                     className={`col-span-2 p-3 rounded-xl font-medium border text-center transition-colors ${
@@ -1516,7 +1685,7 @@ const RoomDetailModal = ({ room, issues, onClose, setNotification, userId }) => 
                         : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'
                     }`}
                  >
-                    {room.state === 'Occupied' ? 'Vacate Room (Set to Not Cleaned)' : 'Mark as Occupied'}
+                    {room.state === 'Occupied' ? 'Vacate (Set to Not Cleaned)' : 'Mark as Occupied / In Use'}
                  </button>
               </div>
             </div>
@@ -1705,6 +1874,7 @@ const ReportsView = ({ rooms, issues, userId }) => {
       buildingName: r.buildingName,
       floor: r.floor,
       number: r.number,
+      type: r.type || 'Accommodation', // Add Type
       state: r.state,
       items_beds: r.items?.beds || 0,
       items_mattress: r.items?.mattress || 0,
@@ -1740,39 +1910,40 @@ const ReportsView = ({ rooms, issues, userId }) => {
         </div>
 
         {/* Standard Reports */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-            <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center mb-4">
-              <Building2 size={24} />
-            </div>
-            <h3 className="text-lg font-bold text-slate-800 mb-2">Room Status Report</h3>
-            <p className="text-slate-500 text-sm mb-6">
-              Export a list of all rooms, cleaning state, inventory counts.
-            </p>
-            <button 
-              onClick={() => downloadCSV(prepareRoomsExport(), `rooms_export_${new Date().toISOString().split('T')[0]}.csv`)}
-              className="w-full py-3 bg-slate-900 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors"
-            >
-              <Download size={18} /> Download CSV
-            </button>
+        <div className="grid grid-cols-2 md:grid-cols-2 gap-3 md:gap-6"> 
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col"> 
+          <div className="w-8 h-8 md:w-12 md:h-12 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center mb-2 md:mb-4"> 
+            <Building2 size={16} className="md:w-6 md:h-6" /> 
           </div>
-
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-            <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-lg flex items-center justify-center mb-4">
-              <AlertTriangle size={24} />
-            </div>
-            <h3 className="text-lg font-bold text-slate-800 mb-2">Issues Log</h3>
-            <p className="text-slate-500 text-sm mb-6">
-              Export all reported issues and resolution status.
-            </p>
-            <button 
-              onClick={() => downloadCSV(prepareIssuesExport(), `issues_export_${new Date().toISOString().split('T')[0]}.csv`)}
-              className="w-full py-3 bg-slate-900 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors"
-            >
-              <Download size={18} /> Download CSV
-            </button>
-          </div>
+          <h3 className="text-sm md:text-lg font-bold text-slate-800 mb-1 md:mb-2">Room Status</h3> 
+          <p className="text-slate-500 text-xs md:text-sm mb-3 md:mb-6 hidden md:block"> 
+            Export a list of all rooms, cleaning state, inventory counts.
+          </p>
+          <button 
+            onClick={() => downloadCSV(prepareRoomsExport(), `rooms_export_${new Date().toISOString().split('T')[0]}.csv`)}
+            className="mt-auto w-full py-2 md:py-3 bg-slate-900 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors text-xs md:text-base"
+          >
+            <Download size={14} className="md:w-[18px] md:h-[18px]" /> <span className="hidden md:inline">Download CSV</span><span className="md:hidden">CSV</span>
+          </button>
         </div>
+
+        {/* Similar for Issues Log */}
+        <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col">
+          <div className="w-8 h-8 md:w-12 md:h-12 bg-orange-100 text-orange-600 rounded-lg flex items-center justify-center mb-2 md:mb-4">
+             <AlertTriangle size={16} className="md:w-6 md:h-6" />
+          </div>
+          <h3 className="text-sm md:text-lg font-bold text-slate-800 mb-1 md:mb-2">Issues Log</h3>
+          <p className="text-slate-500 text-xs md:text-sm mb-3 md:mb-6 hidden md:block">
+            Export all reported issues and resolution status.
+          </p>
+          <button 
+            onClick={() => downloadCSV(prepareIssuesExport(), `issues_export_${new Date().toISOString().split('T')[0]}.csv`)}
+            className="mt-auto w-full py-2 md:py-3 bg-slate-900 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors text-xs md:text-base"
+          >
+            <Download size={14} className="md:w-[18px] md:h-[18px]" /> <span className="hidden md:inline">Download CSV</span><span className="md:hidden">CSV</span>
+          </button>
+        </div>
+      </div>
 
         {/* Cleaning Activity Report Section */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
