@@ -300,7 +300,7 @@ const DashboardView = ({ buildings, rooms, issues }) => {
                 <span className="text-3xl font-bold text-slate-800">{stats.rooms}</span>
                 <span className="text-sm font-semibold text-slate-400">+{stats.utilityRooms}</span>
             </div>
-            <div className="text-xs text-slate-500 uppercase font-bold mt-1">Units + Utility</div>
+            <div className="text-xs text-slate-500 uppercase font-bold mt-1">Rooms + Utility</div>
           </div>
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
             <div className="text-3xl font-bold text-orange-600">{stats.issuesOpen}</div>
@@ -1300,6 +1300,334 @@ const RoomManager = ({ building, rooms, issues, setNotification, onBack, userId 
             userId={userId}
          />
       )}
+    </div>
+  );
+};
+
+// 4. Issues Dashboard
+const IssuesView = ({ rooms, issues, setNotification, userId }) => {
+  const categories = ['Plumbing', 'Electrical', 'Carpentry', 'AC', 'General'];
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [sortConfig, setSortConfig] = useState({ key: 'reportedAt', direction: 'desc' });
+
+  // Default Date Filter: Last 7 Days
+  const [dateFilter, setDateFilter] = useState(() => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - 7);
+    return {
+      start: start.toISOString().split('T')[0],
+      end: end.toISOString().split('T')[0]
+    };
+  });
+
+  const issuesInDateRange = useMemo(() => {
+    return issues.filter(i => {
+        if (!i.reportedAt) return false;
+        const issueDate = i.reportedAt.toDate();
+        const start = new Date(dateFilter.start);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(dateFilter.end);
+        end.setHours(23, 59, 59, 999);
+        return issueDate >= start && issueDate <= end;
+    });
+  }, [issues, dateFilter]);
+
+  const stats = useMemo(() => {
+    const total = issuesInDateRange.length;
+    const open = issuesInDateRange.filter(i => i.status === 'Open').length;
+    const fixed = issuesInDateRange.filter(i => i.status === 'Fixed').length;
+    return { total, open, fixed };
+  }, [issuesInDateRange]);
+
+  const handleStatusToggle = async (issue) => {
+    const newStatus = issue.status === 'Fixed' ? 'Open' : 'Fixed';
+    try {
+      await updateDoc(doc(db, getCollectionPath('issues', userId), issue.id), {
+        status: newStatus,
+        resolvedAt: newStatus === 'Fixed' ? serverTimestamp() : null
+      });
+      setNotification({ type: 'success', message: `Issue marked as ${newStatus}`});
+    } catch(e) {
+      setNotification({ type: 'error', message: 'Failed to update issue' });
+    }
+  };
+
+  const handleSort = (key) => {
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const filteredIssues = issuesInDateRange.filter(i => {
+    const matchesCategory = categoryFilter === 'All' || i.category === categoryFilter;
+    const matchesStatus = statusFilter === 'All' || i.status === statusFilter;
+    return matchesCategory && matchesStatus;
+  });
+
+  const sortedIssues = useMemo(() => {
+    if (!filteredIssues) return [];
+    // Enriched issues with floor data
+    const enrichedIssues = filteredIssues.map(issue => {
+        const room = rooms.find(r => r.id === issue.roomId);
+        return {
+            ...issue,
+            floor: room ? room.floor : '-'
+        };
+    });
+
+    const sorted = [...enrichedIssues];
+    sorted.sort((a, b) => {
+      let aVal = a[sortConfig.key];
+      let bVal = b[sortConfig.key];
+
+      // Handle Timestamp objects
+      if (aVal?.toDate) aVal = aVal.toDate();
+      if (bVal?.toDate) bVal = bVal.toDate();
+      
+      // Handle strings (case insensitive)
+      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+
+      // Handle nulls
+      if (aVal === null || aVal === undefined) return 1;
+      if (bVal === null || bVal === undefined) return -1;
+
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return sorted;
+  }, [filteredIssues, rooms, sortConfig]);
+
+  const handleExport = () => {
+    const exportData = sortedIssues.map(i => ({
+      Floor: i.floor,
+      Room: i.roomNumber,
+      Category: i.category,
+      Description: i.description,
+      Reported: i.reportedAt ? i.reportedAt.toDate().toLocaleString() : '',
+      Resolved: i.resolvedAt ? i.resolvedAt.toDate().toLocaleString() : '',
+      Status: i.status
+    }));
+    downloadCSV(exportData, `issues_list_${new Date().toISOString().split('T')[0]}.csv`);
+  };
+
+  return (
+    <div className="p-4 md:p-6 h-full flex flex-col pb-24 md:pb-6">
+       <div className="flex flex-col gap-4 md:gap-6 flex-shrink-0">
+           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div className="flex items-center gap-3">
+                <h2 className="text-2xl font-bold text-slate-800">Issues Tracker</h2>
+                <button 
+                    onClick={handleExport}
+                    className="p-2 bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm"
+                    title="Export current list"
+                >
+                    <Download size={20} />
+                </button>
+              </div>
+              
+              <div className="flex flex-col gap-3 w-full md:w-auto">
+                <div className="flex flex-col md:flex-row gap-2">
+                    {/* Date Filters */}
+                    <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200">
+                        <div className="flex items-center gap-1 px-2">
+                            <Calendar size={14} className="text-slate-400"/>
+                            <input 
+                                type="date" 
+                                value={dateFilter.start}
+                                onChange={(e) => setDateFilter(prev => ({...prev, start: e.target.value}))}
+                                className="text-xs font-medium text-slate-600 outline-none bg-transparent"
+                            />
+                        </div>
+                        <span className="text-slate-300">-</span>
+                        <div className="flex items-center gap-1 px-2">
+                            <input 
+                                type="date" 
+                                value={dateFilter.end}
+                                onChange={(e) => setDateFilter(prev => ({...prev, end: e.target.value}))}
+                                className="text-xs font-medium text-slate-600 outline-none bg-transparent"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Status Filters */}
+                    <div className="flex gap-2 bg-white p-1 rounded-lg border border-slate-200">
+                        {['All', 'Open', 'Fixed'].map(status => (
+                            <button
+                                key={status}
+                                onClick={() => setStatusFilter(status)}
+                                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                                    statusFilter === status 
+                                    ? (status === 'Open' ? 'bg-red-100 text-red-700' : status === 'Fixed' ? 'bg-green-100 text-green-700' : 'bg-slate-800 text-white')
+                                    : 'text-slate-500 hover:bg-slate-50'
+                                }`}
+                            >
+                                {status}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Category Filters */}
+                <div className="flex flex-wrap gap-2">
+                    <button 
+                        onClick={() => setCategoryFilter('All')}
+                        className={`px-3 py-1 rounded-full text-xs md:text-sm font-medium transition-colors ${
+                        categoryFilter === 'All' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                        }`}
+                    >
+                        All Cats
+                    </button>
+                    {categories.map(cat => (
+                    <button 
+                        key={cat}
+                        onClick={() => setCategoryFilter(cat)}
+                        className={`px-3 py-1 rounded-full text-xs md:text-sm font-medium transition-colors ${
+                        categoryFilter === cat ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                        }`}
+                    >
+                        {cat}
+                    </button>
+                    ))}
+                </div>
+              </div>
+           </div>
+
+           {/* Stats Row - Compact on Mobile */}
+           <div className="grid grid-cols-3 gap-2 md:gap-4">
+                <div className="bg-white p-2 md:p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col items-center md:items-start text-center md:text-left">
+                    <div className="text-xl md:text-2xl font-bold text-slate-800">{stats.total}</div>
+                    <div className="text-[10px] md:text-xs text-slate-500 font-bold uppercase truncate w-full">Total</div>
+                </div>
+                <div className="bg-white p-2 md:p-4 rounded-xl border border-red-100 bg-red-50 shadow-sm flex flex-col items-center md:items-start text-center md:text-left">
+                    <div className="text-xl md:text-2xl font-bold text-red-600">{stats.open}</div>
+                    <div className="text-[10px] md:text-xs text-red-600/70 font-bold uppercase truncate w-full">Pending</div>
+                </div>
+                <div className="bg-white p-2 md:p-4 rounded-xl border border-green-100 bg-green-50 shadow-sm flex flex-col items-center md:items-start text-center md:text-left">
+                    <div className="text-xl md:text-2xl font-bold text-green-600">{stats.fixed}</div>
+                    <div className="text-[10px] md:text-xs text-green-600/70 font-bold uppercase truncate w-full">Resolved</div>
+                </div>
+           </div>
+       </div>
+
+       <div className="flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white md:bg-transparent md:border-0 mt-3 md:mt-6">
+         {/* Desktop Table View */}
+         <table className="hidden md:table w-full text-left border-collapse bg-white rounded-xl shadow-sm">
+            <thead className="bg-slate-50 sticky top-0 z-10">
+              <tr>
+                {[
+                    { label: 'Floor', key: 'floor' },
+                    { label: 'Room', key: 'roomNumber' },
+                    { label: 'Category', key: 'category' },
+                    { label: 'Description', key: 'description' },
+                    { label: 'Reported', key: 'reportedAt' },
+                    { label: 'Resolved', key: 'resolvedAt' },
+                    { label: 'Status', key: 'status', align: 'right' }
+                ].map(col => (
+                    <th 
+                        key={col.key}
+                        onClick={() => handleSort(col.key)}
+                        className={`p-4 font-semibold text-slate-600 border-b cursor-pointer hover:bg-slate-100 transition-colors ${col.align === 'right' ? 'text-right' : ''}`}
+                    >
+                        <div className={`flex items-center gap-1 ${col.align === 'right' ? 'justify-end' : ''}`}>
+                            {col.label}
+                            {sortConfig.key === col.key && (
+                                <ArrowUpDown size={14} className="text-blue-500" />
+                            )}
+                        </div>
+                    </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedIssues.map(issue => (
+                <tr key={issue.id} className="hover:bg-slate-50 border-b last:border-0">
+                  <td className="p-4 text-slate-600 font-medium">{issue.floor}</td>
+                  <td className="p-4 font-medium text-slate-800">{issue.roomNumber}</td>
+                  <td className="p-4">
+                    <span className={`px-2 py-1 rounded text-xs font-bold ${
+                      issue.category === 'Electrical' ? 'bg-yellow-100 text-yellow-700' :
+                      issue.category === 'Plumbing' ? 'bg-blue-100 text-blue-700' :
+                      'bg-slate-100 text-slate-700'
+                    }`}>
+                      {issue.category}
+                    </span>
+                  </td>
+                  <td className="p-4 text-slate-600 max-w-xs truncate" title={issue.description}>{issue.description}</td>
+                  <td className="p-4 text-sm text-slate-500">
+                    {issue.reportedAt?.toDate().toLocaleDateString()}
+                  </td>
+                  <td className="p-4 text-sm text-slate-500">
+                    {issue.resolvedAt ? issue.resolvedAt.toDate().toLocaleDateString() : '-'}
+                  </td>
+                  <td className="p-4 text-right">
+                    <button 
+                      onClick={() => handleStatusToggle(issue)}
+                      className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+                        issue.status === 'Fixed' 
+                          ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                          : 'bg-red-100 text-red-700 hover:bg-red-200'
+                      }`}
+                    >
+                      {issue.status === 'Fixed' ? <CheckCircle2 size={14}/> : <AlertTriangle size={14}/>}
+                      {issue.status}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+         </table>
+
+         {/* Mobile Card View */}
+         <div className="md:hidden space-y-3 p-3">
+            {sortedIssues.map(issue => (
+              <div key={issue.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                 <div className="flex justify-between items-start mb-2">
+                    <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-sm">#{issue.roomNumber}</span>
+                        <span className="text-xs text-slate-500 bg-slate-50 px-2 py-0.5 rounded">F{issue.floor}</span> {/* Added Floor Badge */}
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
+                            issue.category === 'Electrical' ? 'bg-yellow-50 text-yellow-700' :
+                            issue.category === 'Plumbing' ? 'bg-blue-50 text-blue-700' :
+                            'bg-slate-50 text-slate-600'
+                        }`}>
+                            {issue.category}
+                        </span>
+                    </div>
+                    <div className="text-right">
+                        <span className="text-[10px] text-slate-400 block">{issue.reportedAt?.toDate().toLocaleDateString()}</span>
+                        {issue.resolvedAt && (
+                            <span className="text-[10px] text-green-600 block mt-0.5">Fixed: {issue.resolvedAt.toDate().toLocaleDateString()}</span>
+                        )}
+                    </div>
+                 </div>
+                 <p className="text-sm text-slate-600 mb-3">{issue.description}</p>
+                 <button 
+                      onClick={() => handleStatusToggle(issue)}
+                      className={`w-full flex justify-center items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        issue.status === 'Fixed' 
+                          ? 'bg-green-50 text-green-700 border border-green-200' 
+                          : 'bg-red-50 text-red-700 border border-red-200'
+                      }`}
+                    >
+                      {issue.status === 'Fixed' ? <CheckCircle2 size={16}/> : <AlertTriangle size={16}/>}
+                      {issue.status}
+                </button>
+              </div>
+            ))}
+         </div>
+
+         {filteredIssues.length === 0 && (
+            <div className="p-12 text-center text-slate-400">
+            No issues found matching filters.
+            </div>
+         )}
+       </div>
     </div>
   );
 };
